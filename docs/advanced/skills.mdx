@@ -1,0 +1,52 @@
+---
+title: Agent and skill development
+description: Extend Phantom with focused, evidence-driven capabilities
+---
+
+# Agent and skill development
+
+A skill is a focused playbook an agent can use. Keep each skill small enough to review and test.
+
+## Skill structure
+
+A good skill documents:
+
+1. Scope and authorization assumptions.
+2. Objective and what the agent is looking for.
+3. Safe testing procedure.
+4. Evidence to collect.
+5. False-positive rules.
+6. Independent validation criteria.
+7. MITRE ATT&CK mapping when applicable.
+8. Cleanup and reporting requirements.
+
+Use precise acceptance criteria. A skill should say what counts as a confirmed result and when the agent must stop.
+
+## Adding a skill
+
+Place the playbook in the appropriate directory under:
+
+    phantom/skills/
+
+Use the existing skill format and update the skills README when the new capability is part of the supported product.
+
+## Adding an agent type
+
+Agent prompts and factory registration live under:
+
+    phantom/agents/prompts/
+    phantom/agents/factory.py
+
+A new agent type should have a narrow role, a clear hand-off contract, and tests for registration and creation.
+
+The Payload Crafter is intentionally scoped to authorized web payload work. It must verify authorization first, pair generated content with detection guidance, refuse destructive or mass-target requests, record OPSEC and shelf-life notes, and hand off out-of-scope work.
+
+## Review checklist
+
+Before merging:
+
+- The agent cannot bypass the engagement scope.
+- The skill produces evidence, not just a claim.
+- Validation and report output are deterministic enough to review.
+- Destructive actions are excluded or explicitly gated.
+- Tests cover the new registry, prompt, or report behavior.

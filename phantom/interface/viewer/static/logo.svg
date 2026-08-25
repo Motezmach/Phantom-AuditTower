@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>Phantom</title>
+  <defs>
+    <linearGradient id="phantom-blue" x1="12" y1="8" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#60a5fa" />
+      <stop offset="1" stop-color="#2563eb" />
+    </linearGradient>
+  </defs>
+  <path
+    fill="url(#phantom-blue)"
+    d="M16 8h24c8.837 0 16 7.163 16 16s-7.163 16-16 16H30v16H16V8Zm14 12v8h10a4 4 0 1 0 0-8H30Z"
+  />
+</svg>

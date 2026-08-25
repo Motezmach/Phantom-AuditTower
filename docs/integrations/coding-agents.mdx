@@ -1,0 +1,42 @@
+---
+title: "Coding agents"
+description: "Use Phantom from local coding-agent workflows"
+---
+
+Phantom is a local-first CLI that can be driven by coding agents. Agents can launch an authorized scan, inspect structured artifacts, and guide remediation without requiring a hosted service.
+
+## Local workflow
+
+```bash
+uv sync
+export PHANTOM_LLM="deepseek/deepseek-chat"
+export LLM_API_KEY="your-api-key"
+uv run phantom --target http://localhost:3000 --scan-mode quick --max-budget 2
+```
+
+The headless form is suitable for automation:
+
+```bash
+uv run phantom --non-interactive --target http://localhost:3000 --scan-mode quick
+```
+
+## Agent responsibilities
+
+- Confirm authorization and target scope before scanning.
+- Keep credentials and API keys outside the repository.
+- Read findings from `phantom_runs/<run-name>/`.
+- Use `attack_paths.md`, finding JSON, Markdown, SARIF, and PDF output for reporting.
+- Revalidate important findings before describing them as confirmed.
+
+## Structured results
+
+Each completed run can contain:
+
+- `vulnerabilities.json`
+- `vulnerabilities.csv`
+- `findings.sarif`
+- Per-finding Markdown
+- `attack_paths.md`
+- `phantom.log`
+
+See the [CLI guide](/docs/usage/cli), [reports guide](/docs/reports), and [skills guide](/docs/advanced/skills) for details.

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "maple",
+  "name": "Phantom",
+  "colors": {
+    "primary": "#2563eb",
+    "light": "#ffffff",
+    "dark": "#000000"
+  },
+  "favicon": "/images/favicon-48.ico",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting started",
+            "pages": [
+              "index",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Usage",
+            "pages": [
+              "usage/cli",
+              "usage/scan-modes",
+              "usage/instructions"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "advanced/configuration",
+              "tools/sandbox",
+              "reports",
+              "troubleshooting"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "advanced/skills",
+              "development"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "fonts": {
+    "family": "Geist",
+    "heading": {
+      "family": "Geist"
+    },
+    "body": {
+      "family": "Geist"
+    }
+  },
+  "appearance": {
+    "default": "dark"
+  },
+  "description": "Local-first agentic AI penetration testing",
+  "background": {
+    "decoration": "grid"
+  }
+}

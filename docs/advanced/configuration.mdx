@@ -1,0 +1,68 @@
+---
+title: Configuration
+description: Phantom environment variables and local settings
+---
+
+# Configuration
+
+Phantom uses environment variables for runtime settings and stores local interactive configuration in:
+
+    ~/.phantom/cli-config.json
+
+On Windows, this resolves under the current user's profile.
+
+## Required model settings
+
+| Variable | Purpose |
+| --- | --- |
+| PHANTOM_LLM | Model identifier sent to the configured LLM provider. |
+| LLM_API_KEY | API key for a cloud provider or a protected local endpoint; usually omitted for local servers. |
+| LLM_API_BASE | Optional OpenAI-compatible API base URL, commonly used for local servers. |
+
+## Runtime settings
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| PHANTOM_IMAGE | phantom-sandbox:1.3.0 | Docker image used for sandbox execution. |
+| PHANTOM_RUNTIME_BACKEND | docker | Runtime backend used to execute tools. |
+| PHANTOM_SANDBOX_CPUS | unset | Optional CPU limit for a sandbox container. |
+| PHANTOM_SANDBOX_MEM_LIMIT | unset | Optional memory limit such as 4g. |
+
+Example PowerShell configuration:
+
+    $env:PHANTOM_LLM="deepseek/deepseek-chat"
+    $env:LLM_API_KEY="your-api-key"
+    $env:PHANTOM_IMAGE="phantom-sandbox:1.3.0"
+    $env:PHANTOM_RUNTIME_BACKEND="docker"
+    $env:PHANTOM_SANDBOX_CPUS="2"
+    $env:PHANTOM_SANDBOX_MEM_LIMIT="4g"
+
+Example Bash configuration:
+
+    export PHANTOM_LLM="deepseek/deepseek-chat"
+    export LLM_API_KEY="your-api-key"
+    export PHANTOM_IMAGE="phantom-sandbox:1.3.0"
+    export PHANTOM_RUNTIME_BACKEND="docker"
+    export PHANTOM_SANDBOX_CPUS="2"
+    export PHANTOM_SANDBOX_MEM_LIMIT="4g"
+
+For a local Ollama server, replace the model and key settings with:
+
+    export PHANTOM_LLM="ollama/qwen3-vl"
+    export LLM_API_BASE="http://localhost:11434"
+
+The sandbox image is independent of the LLM provider. Build it once locally and
+switch providers by changing these environment variables; no image rebuild is
+needed.
+
+## Run storage
+
+Each assessment is written under:
+
+    phantom_runs/<run-name>/
+
+The runtime log is:
+
+    phantom_runs/<run-name>/phantom.log
+
+Only the documented `PHANTOM_*` variables are part of Phantom's public configuration.

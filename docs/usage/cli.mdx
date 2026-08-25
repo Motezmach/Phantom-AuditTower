@@ -1,0 +1,36 @@
+---
+title: CLI reference
+description: Common Phantom command-line options
+---
+
+# CLI reference
+
+Show all available options:
+
+    uv run phantom --help
+
+## Common commands
+
+Run an authorized scan:
+
+    uv run phantom --target "http://demo.testfire.net/" --scan-mode quick
+
+Open the viewer:
+
+    uv run phantom view
+    uv run phantom view <run-name>
+
+Resume a previous run:
+
+    uv run phantom --resume <run-name>
+
+## Common options
+
+- --target — target URL or target definition for the engagement.
+- --scan-mode — quick, standard, or deep.
+- --resume — continue a named run.
+- --max-budget — cap model spend when supported by the selected provider.
+- --max-turns — cap orchestration turns when supported.
+- --help — show command help.
+
+Use a small, authorized target while validating a new configuration.

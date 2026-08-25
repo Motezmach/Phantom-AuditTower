@@ -1,0 +1,51 @@
+---
+title: Developer guide
+description: Contribute to Phantom without changing the working architecture
+---
+
+# Developer guide
+
+## Repository layout
+
+- phantom/ — current internal Python package and runtime implementation.
+- phantom/agents/ — agent factory, prompts, and agent orchestration.
+- phantom/skills/ — reusable testing playbooks.
+- containers/ — Docker sandbox definition.
+- scripts/ — local build helpers.
+- docs/ — user and contributor documentation.
+- phantom_runs/ — local generated assessment artifacts.
+
+The internal package name is intentionally retained for now. Public commands, runtime settings, run storage, logs, and user-facing branding use Phantom.
+
+## Local checks
+
+Install dependencies:
+
+    uv sync
+
+Run the test suite:
+
+    uv run pytest -q
+
+Build the sandbox:
+
+    docker build -f containers/Dockerfile -t phantom-sandbox:1.3.0 .
+
+## Safe contribution rules
+
+- Keep target authorization and scope controls intact.
+- Prefer focused changes over broad rewrites.
+- Add or update tests with behavior changes.
+- Never commit API keys, credentials, private target data, or generated run artifacts.
+- Do not change the agent execution contract without a regression test.
+- Keep public documentation aligned with the Phantom command and PHANTOM_* settings.
+
+## Before a GitLab push
+
+Run the tests, inspect the diff, and check that no local run output or secrets are staged:
+
+    git status
+    uv run pytest -q
+    git diff --check
+
+Commit source and documentation changes only.

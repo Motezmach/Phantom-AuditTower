@@ -1,0 +1,95 @@
+---
+title: Quickstart
+description: Install Phantom and run your first local assessment
+---
+
+# Quickstart
+
+## 1. Install
+
+Requirements:
+
+- Python 3.12 or newer
+- uv
+- Docker Desktop or Docker Engine
+- Either a cloud model endpoint and API key, or a compatible local model server
+
+From the repository root:
+
+    uv sync
+
+The public command and Python package are both named `phantom`.
+
+## 2. Configure
+
+Choose one provider. The Docker sandbox is independent of the LLM and is built
+separately once per machine.
+
+Cloud provider, PowerShell:
+
+PowerShell:
+
+    $env:PHANTOM_LLM="deepseek/deepseek-chat"
+    $env:LLM_API_KEY="your-api-key"
+    $env:PHANTOM_IMAGE="phantom-sandbox:1.3.0"
+    $env:PHANTOM_RUNTIME_BACKEND="docker"
+
+Cloud provider, Bash:
+
+    export PHANTOM_LLM="deepseek/deepseek-chat"
+    export LLM_API_KEY="your-api-key"
+    export PHANTOM_IMAGE="phantom-sandbox:1.3.0"
+    export PHANTOM_RUNTIME_BACKEND="docker"
+
+Local Ollama, PowerShell:
+
+    $env:PHANTOM_LLM="ollama/qwen3-vl"
+    $env:LLM_API_BASE="http://localhost:11434"
+    $env:PHANTOM_IMAGE="phantom-sandbox:1.3.0"
+    $env:PHANTOM_RUNTIME_BACKEND="docker"
+
+Local Ollama, Bash:
+
+    export PHANTOM_LLM="ollama/qwen3-vl"
+    export LLM_API_BASE="http://localhost:11434"
+    export PHANTOM_IMAGE="phantom-sandbox:1.3.0"
+    export PHANTOM_RUNTIME_BACKEND="docker"
+
+For LM Studio, vLLM, or another OpenAI-compatible server, use a model name such
+as `openai/local-model` and set `LLM_API_BASE` to its URL. A local server usually
+does not require `LLM_API_KEY`. See [Local Models](llm-providers/local) for
+tool-calling requirements.
+
+See [Configuration](advanced/configuration) for optional limits.
+
+## 3. Prepare Docker
+
+Build the local image when it is not already available:
+
+    docker build -f containers/Dockerfile -t phantom-sandbox:1.3.0 .
+
+Changing the LLM provider does not require rebuilding this image.
+
+## 4. Run an authorized scan
+
+    uv run phantom --target "http://demo.testfire.net/" --scan-mode quick
+
+Replace the target with an application you own or are explicitly authorized to assess. Keep the target scope and any credentials inside the engagement instructions.
+
+## 5. Inspect the result
+
+Runs are stored in:
+
+    phantom_runs/<run-name>/
+
+Open the local viewer:
+
+    uv run phantom view <run-name>
+
+The viewer shows the run summary, findings, evidence, agent activity, and a PDF download for the selected run.
+
+## 6. Resume a run
+
+    uv run phantom --resume <run-name>
+
+The [CLI reference](usage/cli) describes the main options. The [Troubleshooting](troubleshooting) page covers the common Docker, model, and viewer errors.

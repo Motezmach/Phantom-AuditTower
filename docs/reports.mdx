@@ -1,0 +1,50 @@
+---
+title: Reports
+description: Phantom run artifacts and report formats
+---
+
+# Reports
+
+Phantom keeps reports and evidence locally so an assessment can be reviewed without a cloud account.
+
+## Run directory
+
+Each run is stored under:
+
+    phantom_runs/<run-name>/
+
+Common artifacts:
+
+| Artifact | Purpose |
+| --- | --- |
+| run.json | Run metadata, state, model, target summary, and timing. |
+| phantom.log | Runtime, agent, and orchestration events. |
+| penetration_test_report.md | Main human-readable report. |
+| vulnerabilities/ | Individual finding reports and evidence. |
+| JSON export | Structured findings for automation. |
+| CSV export | Spreadsheet-friendly finding summary. |
+| SARIF export | Findings for compatible code-security workflows. |
+
+## Viewer and PDF
+
+Open the local viewer with:
+
+    uv run phantom view <run-name>
+
+Use the Download PDF action for the selected run. The PDF is generated locally and saved by the browser.
+
+## What a finding should contain
+
+A useful finding includes:
+
+- Title and severity.
+- Affected target and endpoint.
+- Clear technical description.
+- Impact and realistic attack path.
+- Reproduction steps or proof of impact.
+- Evidence collected by the agent.
+- Validation status and false-positive considerations.
+- Remediation guidance.
+- MITRE ATT&CK mapping when the behavior is applicable.
+
+Do not include API keys, passwords, or unrelated private data in reports.

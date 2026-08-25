@@ -1,0 +1,33 @@
+---
+title: "Local deployment"
+description: "Run Phantom locally with a Docker sandbox"
+---
+
+Phantom is designed for authorized local application assessments. The repository does not include a hosted cloud service; run the CLI on your workstation or inside your CI environment.
+
+## What you need
+
+- Python 3.12 or newer
+- `uv`
+- Docker Desktop or Docker Engine
+- An LLM provider key and model name
+
+## Start Phantom
+
+```bash
+uv sync
+export PHANTOM_LLM="deepseek/deepseek-chat"
+export LLM_API_KEY="your-api-key"
+uv run phantom --target http://localhost:3000 --scan-mode quick
+```
+
+On Windows PowerShell:
+
+```powershell
+uv sync
+$env:PHANTOM_LLM="deepseek/deepseek-chat"
+$env:LLM_API_KEY="your-api-key"
+uv run phantom --target http://localhost:3000 --scan-mode quick
+```
+
+Run artifacts are written locally under `phantom_runs/<run-name>/`. See the [quickstart](/docs/quickstart) and [sandbox guide](/docs/tools/sandbox) for the complete setup.

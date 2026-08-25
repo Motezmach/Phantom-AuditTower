@@ -1,0 +1,62 @@
+---
+title: Troubleshooting
+description: Common Phantom setup and runtime issues
+---
+
+# Troubleshooting
+
+## Docker is unavailable
+
+Confirm Docker Desktop or Docker Engine is running:
+
+    docker info
+
+Then retry the scan. Phantom uses the configured Docker backend by default.
+
+## The model or API key is missing
+
+PowerShell:
+
+    Get-ChildItem Env:PHANTOM_LLM
+    Get-ChildItem Env:LLM_API_KEY
+
+Bash:
+
+    printenv PHANTOM_LLM
+    printenv LLM_API_KEY
+
+Set them in the same terminal from which Phantom is launched.
+
+## The sandbox image cannot be found
+
+Inspect the default image:
+
+    docker image inspect phantom-sandbox:1.3.0
+
+Build it with:
+
+    docker build -f containers/Dockerfile -t phantom-sandbox:1.3.0 .
+
+Or set PHANTOM_IMAGE to an existing local image.
+
+## The viewer does not show the latest run
+
+Start the viewer with the exact run name:
+
+    uv run phantom view <run-name>
+
+Refresh the browser after the scan completes. If an older viewer process is still running, stop it and start it again.
+
+## PDF download fails
+
+Confirm that the run has a completed report and that the viewer is serving the same run. Inspect the browser developer console and the run's phantom.log. A 404 usually means the viewer process is pointing at an older build or a run without the report endpoint; restart the viewer from the current checkout.
+
+## Where to look for evidence
+
+Start with:
+
+    phantom_runs/<run-name>/phantom.log
+    phantom_runs/<run-name>/run.json
+    phantom_runs/<run-name>/penetration_test_report.md
+
+Do not delete run directories until the report and evidence have been copied to the approved project location.
