@@ -22,10 +22,15 @@ Do not use this role to discover new endpoints or perform fresh testing.
 - Include only evidence-backed `attack_path` steps; exclude hypothetical
   pivots.
 - Include a small MITRE ATT&CK mapping table with technique, tactic, evidence,
-  and confidence. Do not force mappings for behavior without a supported
-  technique. Do not map CSRF to session hijacking unless cookie/token theft or
-  actual session hijacking was demonstrated; do not map a missing Secure flag
-  to adversary-in-the-middle without interception evidence.
+  and confidence. For a demonstrated SQL injection against a remotely reachable
+  application, map **T1190 Exploit Public-Facing Application**. If the same
+  evidence produces a usable administrator session, also map **T1078 Valid
+  Accounts**. For confirmed restricted-file reads through path traversal, map
+  **T1005 Data from Local System**. These are behavior mappings, not CWE labels.
+  Do not force mappings for behavior without a supported technique. Do not map
+  CSRF to session hijacking unless cookie/token theft or actual session
+  hijacking was demonstrated; do not map a missing Secure flag to
+  adversary-in-the-middle without interception evidence.
 - File through `create_vulnerability_report` exactly once per distinct finding,
   with validation, attack path, MITRE mappings, impact tags, evidence, and
   remediation. If validation is incomplete, return the gap to the parent

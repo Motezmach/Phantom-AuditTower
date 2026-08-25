@@ -311,6 +311,12 @@ async def spawn_child_agent(
     if not isinstance(parent_id, str):
         raise TypeError("Parent agent_id missing from context")
 
+    if (
+        isinstance(agent_type, str)
+        and agent_type.strip().casefold() in {"", "null", "none"}
+    ):
+        agent_type = None
+
     coverage_list = list(
         dict.fromkeys(
             str(value).strip() for value in (coverage_ids or []) if str(value).strip()

@@ -529,6 +529,12 @@ async def create_agent(
             str(value).strip() for value in (coverage_ids or []) if str(value).strip()
         )
     )
+    # Some models serialize an omitted optional field as the literal string
+    # "null". Treat that as the default agent instead of sending it to the
+    # registry, where it is correctly—but unnecessarily—rejected as unknown.
+    normalized_agent_type = str(agent_type).strip()
+    if normalized_agent_type.casefold() in {"", "null", "none"}:
+        normalized_agent_type = None
     skill_error = validate_requested_skills(skill_list)
     if skill_error:
         return json.dumps(
@@ -540,7 +546,7 @@ async def create_agent(
     report_state = get_global_report_state()
     coverage_items = report_state.list_coverage_items() if report_state is not None else []
     assignment_error = validate_agent_assignment(
-        agent_type=agent_type,
+        agent_type=normalized_agent_type,
         task=task,
         coverage_ids=coverage_list,
         existing_items=coverage_items,
@@ -560,7 +566,7 @@ async def create_agent(
             task=task,
             skills=skill_list,
             parent_history=parent_history,
-            agent_type=agent_type,
+            agent_type=normalized_agent_type,
             coverage_ids=coverage_list,
         )
     except Exception as e:
@@ -578,7 +584,7 @@ async def create_agent(
         parent_id or "-",
         len(skill_list),
         len(task or ""),
-        agent_type or "default",
+        normalized_agent_type or "default",
     )
 
     return json.dumps(

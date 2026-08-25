@@ -18,6 +18,7 @@ from agents import RunContextWrapper, function_tool
 
 from phantom.report.metadata import (
     infer_impact_tags,
+    infer_mitre_mappings,
     normalize_attack_path,
     normalize_impact_tags,
     normalize_mitre_techniques,
@@ -158,6 +159,29 @@ def _calculate_cvss(breakdown: dict[str, str]) -> tuple[float, str, str]:
     return score, severity, vector
 
 
+_SCOPE_CHANGED_EVIDENCE = re.compile(
+    r"(?:different\s+security\s+authority|cross(?:ed|es|ing)?\s+(?:a\s+)?"
+    r"security\s+boundary|sandbox\s+escape|container\s+escape|"
+    r"cloud\s+account|separate\s+security\s+authority|"
+    r"attacker[- ]controlled\s+(?:third[- ]party|external)\s+service)",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+
+def _normalize_cvss_scope(
+    breakdown: dict[str, str], *texts: str | None
+) -> tuple[dict[str, str], bool]:
+    """Prevent model over-scoring when no security-authority boundary was crossed."""
+    if breakdown.get("scope") != "C":
+        return breakdown, False
+    evidence = " ".join(str(value or "") for value in texts)
+    if _SCOPE_CHANGED_EVIDENCE.search(evidence):
+        return breakdown, False
+    normalized = dict(breakdown)
+    normalized["scope"] = "U"
+    return normalized, True
+
+
 _REQUIRED_FIELDS = {
     "title": "Title cannot be empty",
     "description": "Description cannot be empty",
@@ -253,6 +277,19 @@ async def _do_create(  # noqa: PLR0912
     errors.extend(attack_path_errors)
     normalized_mitre, mitre_errors = normalize_mitre_techniques(mitre_techniques)
     errors.extend(mitre_errors)
+    if not normalized_mitre and not mitre_errors:
+        normalized_mitre = infer_mitre_mappings(
+            title,
+            description,
+            impact,
+            technical_analysis,
+            evidence,
+            cwe,
+            independently_validated=(
+                normalized_validation is not None
+                and normalized_validation.get("status") == "independently_validated"
+            ),
+        )
     errors.extend(
         validate_mitre_mappings(
             normalized_mitre,
@@ -306,6 +343,14 @@ async def _do_create(  # noqa: PLR0912
     if errors:
         return {"success": False, "error": "Validation failed", "errors": errors}
 
+    cvss_breakdown, scope_normalized = _normalize_cvss_scope(
+        cvss_breakdown,
+        title,
+        description,
+        impact,
+        technical_analysis,
+        evidence,
+    )
     try:
         cvss_score, _cvss_severity, _vector = _calculate_cvss(cvss_breakdown)
     except ValueError as exc:
@@ -316,6 +361,8 @@ async def _do_create(  # noqa: PLR0912
         impact_tags=normalized_tags,
         validation=normalized_validation,
     )
+    if scope_normalized:
+        severity_basis += ";scope_normalized_to_unchanged"
 
     try:
         from phantom.report.state import get_global_report_state
@@ -679,8 +726,10 @@ async def create_vulnerability_report(
          mitre_techniques: Evidence-backed ATT&CK mappings with
              ``technique_id``, ``technique_name``, ``evidence``, and
              ``confidence`` (``confirmed``, ``probable``, or ``contextual``).
-             Omit mappings when no direct technique is defensible; the report
-             will explicitly record that no mapping was forced.
+             For demonstrated SQL injection use T1190, and add T1078 when it
+             produces a usable administrator session. For confirmed restricted
+             file reads through path traversal use T1005. Omit mappings only
+             when no direct behavior is defensible.
         impact_tags: Demonstrated business outcomes such as
             ``account_takeover``, ``financial_loss``, or
             ``database_extraction``. These tags are used only for contextual

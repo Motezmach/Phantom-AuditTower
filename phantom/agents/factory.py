@@ -657,6 +657,12 @@ def build_phantom_agent(
             When set, loads the prompt file configured for that type under
             ``phantom/agents/prompts``; arbitrary prompt paths are not allowed.
     """
+    if (
+        isinstance(agent_type, str)
+        and agent_type.strip().casefold() in {"", "null", "none"}
+    ):
+        agent_type = None
+
     if instructions_override is not None:
         instructions = instructions_override
     elif agent_type:

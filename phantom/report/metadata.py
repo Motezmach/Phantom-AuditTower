@@ -346,3 +346,78 @@ def normalize_mitre_techniques(raw: Any) -> tuple[list[dict[str, Any]], list[str
             mapping["tactic"] = tactic
         normalized.append(mapping)
     return normalized, errors
+
+
+def infer_mitre_mappings(
+    *texts: str | None,
+    independently_validated: bool = False,
+) -> list[dict[str, Any]]:
+    """Add only high-confidence web mappings omitted by a reporting agent.
+
+    ATT&CK is a behavior taxonomy, not a CWE replacement.  This deliberately
+    covers a small set of unambiguous cases so a report cannot lose the useful
+    mapping merely because a model left the optional field empty.  It does not
+    assign a generic technique to every web weakness.
+    """
+    text = " ".join(str(value or "") for value in texts)
+    lowered = text.casefold()
+    confidence = "confirmed" if independently_validated else "probable"
+    mappings: list[dict[str, Any]] = []
+
+    if re.search(
+        r"(?:sql\s*injection|sqli|cwe[- ]?89|unsanitized\s+sql|injected\s+predicate)",
+        lowered,
+    ):
+        mappings.append(
+            {
+                "technique_id": "T1190",
+                "technique_name": "Exploit Public-Facing Application",
+                "tactic": "Initial Access",
+                "evidence": (
+                    "SQL injection was demonstrated against a remotely reachable application "
+                    "endpoint."
+                ),
+                "confidence": confidence,
+            }
+        )
+
+    if re.search(
+        r"(?:logged\s+in\s+as\s+(?:the\s+)?(?:admin|administrator)|"
+        r"admin(?:istrator)?[- ]?(?:level|privileged)\s+(?:session|access)|"
+        r"admin(?:istrator)?\s+token|(?:obtained|gained|granted|usable|full)\s+"
+        r"(?:an?\s+)?administrator\s+access|account\s+takeover|valid\s+account)",
+        lowered,
+    ):
+        mappings.append(
+            {
+                "technique_id": "T1078",
+                "technique_name": "Valid Accounts",
+                "tactic": "Defense Evasion / Persistence / Privilege Escalation / Initial Access",
+                "evidence": (
+                    "The demonstrated path produced a usable authenticated session or "
+                    "administrator access."
+                ),
+                "confidence": confidence,
+            }
+        )
+
+    has_path_traversal = re.search(
+        r"(?:path traversal|directory traversal|cwe[- ]?22)", lowered
+    )
+    has_restricted_read = re.search(
+        r"(?:read .*?(?:file|web\.xml)|file contents? disclosed|"
+        r"restricted file|sensitive file contents?)",
+        lowered,
+    )
+    if has_path_traversal and has_restricted_read:
+        mappings.append(
+            {
+                "technique_id": "T1005",
+                "technique_name": "Data from Local System",
+                "tactic": "Collection",
+                "evidence": "The path traversal proof read restricted file contents from the target host.",
+                "confidence": confidence,
+            }
+        )
+
+    return mappings

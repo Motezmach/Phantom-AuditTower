@@ -304,6 +304,19 @@ PHASE 2 - SYSTEMATIC VULNERABILITY TESTING:
 - Each agent focuses on ONE vulnerability type in ONE specific location
 - EVERY detected vulnerability MUST spawn its own validation subagent
 
+SURFACE-DRIVEN COVERAGE:
+- Use the baseline ledger as a checklist, but let reconnaissance determine which
+  families deserve dedicated work. Do not spawn every possible family for every
+  target when the surface does not support it.
+- After recon, split meaningful surfaces into focused specialists: for example,
+  test each discovered input/output component, state-changing workflow, API
+  route, server-side fetch, and error-handling path with the relevant skill(s).
+- Preserve the high-recall workflow: discover broadly first, then spawn focused
+  validators/reporters for concrete candidates. A family agent may rule out a
+  category only when it records what was tested and why it was not confirmed.
+- Before finishing, use `list_coverage` to resolve or explicitly document each
+  required item. Coverage is a quality checklist, not a fixed agent-count target.
+
 SIMPLE WORKFLOW RULES:
 
 ROOT AGENT ROLE:
