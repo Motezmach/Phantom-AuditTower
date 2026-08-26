@@ -132,6 +132,7 @@ class ReportState:
 
         self.vulnerability_reports: list[dict[str, Any]] = []
         self.coverage_items: list[dict[str, Any]] = []
+        self.coverage_planner_used = False
         self.final_scan_result: str | None = None
 
         self.scan_results: dict[str, Any] | None = None
@@ -148,6 +149,7 @@ class ReportState:
             "status": "running",
             "auth_mode": auth_mode,
             "targets_info": [],
+            "coverage_planner_used": False,
             "llm_usage": self._build_llm_usage_record(),
         }
         self._run_dir: Path | None = None
@@ -195,6 +197,7 @@ class ReportState:
         data = read_run_record(run_dir)
         if data:
             self.run_record.update(data)
+            self.coverage_planner_used = bool(data.get("coverage_planner_used", False))
             if isinstance(data.get("start_time"), str):
                 self.start_time = data["start_time"]
             if isinstance(data.get("end_time"), str):
@@ -283,8 +286,25 @@ class ReportState:
         self.save_run_data()
         return dict(item)
 
-    def assign_coverage_items(self, coverage_ids: list[str], agent_id: str) -> list[str]:
-        """Bind planned coverage to a child agent for auditable handoffs."""
+    def mark_coverage_planner_used(self) -> None:
+        """Record that the recon-to-surface planner ran for this scan."""
+        self.coverage_planner_used = True
+        self.run_record["coverage_planner_used"] = True
+        self.save_run_data()
+
+    def assign_coverage_items(
+        self,
+        coverage_ids: list[str],
+        agent_id: str,
+        *,
+        role: str | None = None,
+    ) -> list[str]:
+        """Bind coverage to a child, preserving specialist handoff ownership.
+
+        Discovery/validation agents use the primary assignment. A payload
+        crafter is a parallel handoff on the same surface, so it gets a
+        separate field and cannot steal the discovery owner's update lock.
+        """
         requested = list(
             dict.fromkeys(
                 str(value).strip() for value in coverage_ids if str(value).strip()
@@ -296,7 +316,11 @@ class ReportState:
             if missing:
                 return missing
             for coverage_id in requested:
-                by_id[coverage_id]["assigned_agent_id"] = agent_id
+                if role == "payload_crafter":
+                    by_id[coverage_id]["payload_crafter_agent_id"] = agent_id
+                    by_id[coverage_id]["payload_crafter_status"] = "spawned"
+                else:
+                    by_id[coverage_id]["assigned_agent_id"] = agent_id
                 by_id[coverage_id]["updated_at"] = datetime.now(UTC).strftime(
                     "%Y-%m-%d %H:%M:%S UTC"
                 )
@@ -503,6 +527,11 @@ class ReportState:
                 "diff_base": config.get("diff_base"),
             }
         )
+        # A fresh run has no prior ledger. Resume keeps the hydrated planner
+        # marker so an interrupted scan can continue through the same gate.
+        if not self.coverage_items:
+            self.coverage_planner_used = False
+        self.run_record["coverage_planner_used"] = self.coverage_planner_used
         self._seed_baseline_coverage(config)
 
     def _seed_baseline_coverage(self, config: dict[str, Any]) -> None:
@@ -611,6 +640,7 @@ class ReportState:
                 "total": len(self.coverage_items),
                 "status_counts": status_counts,
             }
+            self.run_record["coverage_planner_used"] = self.coverage_planner_used
 
             # SARIF 2.1.0 emitter for CI / ASPM integration. Always emit (even
             # empty) so a clean run overwrites a prior findings.sarif rather than

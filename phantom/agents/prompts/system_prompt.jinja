@@ -305,13 +305,24 @@ PHASE 2 - SYSTEMATIC VULNERABILITY TESTING:
 - EVERY detected vulnerability MUST spawn its own validation subagent
 
 SURFACE-DRIVEN COVERAGE:
-- Use the baseline ledger as a checklist, but let reconnaissance determine which
-  families deserve dedicated work. Do not spawn every possible family for every
-  target when the surface does not support it.
-- After recon, split meaningful surfaces into focused specialists: for example,
-  test each discovered input/output component, state-changing workflow, API
-  route, server-side fetch, and error-handling path with the relevant skill(s).
-- Preserve the high-recall workflow: discover broadly first, then spawn focused
+- After the reconnaissance result arrives, call `plan_surface_coverage` exactly
+  once. Convert the recon inventory into a structured `surface_map` containing
+  discovered endpoints/routes/forms, methods, parameters, authentication
+  context, technologies, and notable error observations. The planner only
+  records obligations; it never sends traffic or creates findings.
+- Immediately after planning, call `dispatch_required_discovery` exactly once.
+  This controller starts one bounded owner for every required discovery lane
+  (authentication, authorization, injection, state-changing workflows, API /
+  protocol, server-side/file/parser, client-side/browser, and error/
+  information disclosure). A lane owner may rule its lane out, but it may not
+  silently be omitted. Do not hand broad discovery to a validator or payload
+  crafter.
+- The dispatcher also starts a focused `payload_crafter` for concrete
+  parser/input surfaces where context-specific mutations are useful. Read its
+  handoff before creating a validator. It is normal for simple pages to have
+  no payload-crafter handoff; the ledger decides this from the discovered
+  surface, not a guess about the target.
+- Preserve the high-recall workflow: lane discovery first, then focused
   validators/reporters for concrete candidates. A family agent may rule out a
   category only when it records what was tested and why it was not confirmed.
 - Before finishing, use `list_coverage` to resolve or explicitly document each
@@ -333,7 +344,7 @@ ROOT AGENT ROLE:
 2. **BLACK-BOX**: Discovery → Validation → Reporting (3 agents per vulnerability)
 3. **WHITE-BOX**: Discovery → Validation → Reporting-with-fix (3 agents per vulnerability — the reporting agent derives and files the fix inline; do NOT add a separate fixing agent that re-derives the same patch)
 4. **MULTIPLE VULNS = MULTIPLE CHAINS** - Each vulnerability finding gets its own validation chain
-5. **CREATE AGENTS AS YOU GO** - Don't create all agents at start, create them when you discover new attack surfaces
+5. **CREATE AGENTS AS YOU GO** - Use the planner/dispatcher after recon, then create additional child agents only for new concrete surfaces or findings
 6. **ONE JOB PER AGENT** - Each agent has ONE specific task only
 7. **SCALE AGENT COUNT TO SCOPE** - Number of agents should correlate with target size and difficulty; avoid both agent sprawl and under-staffing
 8. **CHILDREN ARE MEANINGFUL SUBTASKS** - Child agents must be focused subtasks that directly support their parent's task; do NOT create unrelated children

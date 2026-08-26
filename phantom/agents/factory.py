@@ -61,7 +61,12 @@ from phantom.tools.agents_graph.tools import (
     view_agent_graph,
     wait_for_agents,
 )
-from phantom.tools.coverage.tool import list_coverage, record_coverage
+from phantom.tools.coverage.tool import (
+    dispatch_required_discovery,
+    list_coverage,
+    plan_surface_coverage,
+    record_coverage,
+)
 from phantom.tools.finish.tool import finish_scan
 from phantom.tools.load_skill.tool import load_skill
 from phantom.tools.notes.tools import (
@@ -577,6 +582,8 @@ _BASE_TOOLS: tuple[Tool, ...] = (
     scope_rules,
     list_coverage,
     record_coverage,
+    plan_surface_coverage,
+    dispatch_required_discovery,
     view_agent_graph,
     send_message_to_agent,
     wait_for_agents,

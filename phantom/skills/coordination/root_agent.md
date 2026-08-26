@@ -27,10 +27,18 @@ Before spawning agents, analyze the target from the scan config/scope and any pr
 
 ## Coverage Ledger
 
-After reconnaissance, create a coverage ledger with `record_coverage` for
-every discovered high-value surface. Each item must identify the surface,
-authentication context, applicable test families, and priority. Use
-`list_coverage` before assigning work and update each item to `running`,
+After reconnaissance, call `plan_surface_coverage` exactly once with a
+structured `surface_map` containing the discovered endpoints/routes/forms,
+methods, parameters, authentication context, technologies, and notable error
+observations. It creates concrete coverage items and does not send traffic.
+Then call `dispatch_required_discovery` exactly once. This deterministic
+controller assigns one bounded discovery owner to every required lane:
+authentication, authorization, injection, state-changing workflows, API /
+protocol, server-side/file/parser, client-side/browser, and error/
+information-disclosure. A lane owner can rule its lane out with evidence, but
+the lane must not be silently skipped.
+
+Use `list_coverage` before later handoffs and update each item to `running`,
 `confirmed`, `ruled_out`, `blocked`, or `not_tested` with evidence or a reason.
 
 The ledger is target-agnostic: derive its entries from the discovered attack
@@ -68,7 +76,10 @@ Structure agents by function:
 
 ### Web Payload-Crafting Agent
 
-Create this specialist only after recon or a vulnerability agent identifies a concrete in-scope input surface and a testable hypothesis. It is a focused handoff agent, not a general-purpose exploit or post-exploitation agent.
+The dispatcher creates this specialist when recon identifies a concrete,
+payload-capable in-scope surface. It is a focused handoff agent, not a
+general-purpose exploit or post-exploitation agent. Additional handoffs may
+be created only for a new concrete hypothesis.
 
 Example:
 
@@ -85,19 +96,23 @@ Reporting Agent
 
 The payload-crafting agent receives the baseline request, principal, endpoint, parameter location, parser/rendering context, scope limits, and expected oracle. It returns a small, ordered mutation set with observed differentials, safety classification, stop conditions, and validator handoff details.
 
-Spawn it reactively for concrete surfaces such as XSS, SQL/NoSQL injection, SSRF, OAuth parameters, WebSocket messages, webhook events, path/file inputs, or template contexts. Do not spawn it for generic payload collection or blind spraying. Keep it to one context skill plus `web_payload_crafting` and let the validator prove impact.
+Use it for concrete surfaces such as XSS, SQL/NoSQL injection, SSRF, OAuth
+parameters, WebSocket messages, webhook events, path/file inputs, or template
+contexts. Do not spawn it for generic payload collection or blind spraying.
+Keep it to one context skill plus `web_payload_crafting` and let the validator
+prove impact.
 
 The agent must not generate reverse shells, loaders, phishing artifacts, persistence, EDR-evasion content, destructive actions, uncontrolled callbacks, or denial-of-service traffic. It stays within the declared web application scope and uses synthetic canaries wherever possible.
 
 ### On-Demand Validation and Reporting Pipeline
 
-Use the following handoff sequence reactively; do not spawn these specialists
-for every target or for generic payload collection:
+Use the following handoff sequence for concrete candidates; do not use these
+specialists for generic payload collection:
 
 ```text
 Concrete anomaly or candidate
+    → payload_crafter (when the ledger marks the concrete context as payload-capable)
     → web_validator (independent reproduction)
-    → payload_crafter (only when a context-specific mutation is needed)
     → reporting_analyst (file one structured report)
     → attack_path_analyst (cross-finding chain review)
 ```

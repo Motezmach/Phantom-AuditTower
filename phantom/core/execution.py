@@ -355,6 +355,7 @@ async def spawn_child_agent(
             report_state.assign_coverage_items,
             coverage_list,
             child_id,
+            role=agent_type,
         )
         if missing:
             raise ValueError(f"Coverage assignment failed; unknown coverage_id(s): {missing}")

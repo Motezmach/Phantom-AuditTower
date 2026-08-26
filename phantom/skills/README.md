@@ -77,11 +77,12 @@ create_agent(
 )
 ```
 
-For confirmed candidates, the focused on-demand pipeline is:
+For concrete payload-capable surfaces, the controller starts the focused
+handoff before validation. The pipeline is:
 
 ```text
-candidate → web_validator → payload_crafter (if context-specific mutations are needed)
-          → reporting_analyst → attack_path_analyst
+recon surface map → payload_crafter (when context-specific mutations are useful)
+                 → web_validator → reporting_analyst → attack_path_analyst
 ```
 
 The validator supplies independent evidence, the reporting analyst files the

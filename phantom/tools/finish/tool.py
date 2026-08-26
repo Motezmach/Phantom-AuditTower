@@ -10,7 +10,11 @@ from typing import Any
 from agents import RunContextWrapper, function_tool
 
 from phantom.core.agents import coordinator_from_context
-from phantom.report.coverage import coverage_quality_errors
+from phantom.report.coverage import (
+    coverage_quality_errors,
+    discovery_lane_quality_errors,
+    payload_crafter_quality_errors,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -29,6 +33,23 @@ def _quality_gate_errors(coordinator: Any, report_state: Any) -> list[str]:
     coverage_items = getattr(report_state, "coverage_items", None)
     if isinstance(coverage_items, list):
         errors.extend(coverage_quality_errors(coverage_items))
+        scan_config = getattr(report_state, "scan_config", None)
+        targets = scan_config.get("targets") if isinstance(scan_config, dict) else []
+        is_web_scan = isinstance(targets, list) and any(
+            isinstance(target, dict) and target.get("type") == "web_application"
+            for target in targets
+        )
+        if is_web_scan:
+            if not bool(getattr(report_state, "coverage_planner_used", False)):
+                errors.append(
+                    "The recon-to-surface coverage planner has not run. Call "
+                    "plan_surface_coverage with the structured recon inventory before finishing."
+                )
+            elif coordinator is not None:
+                metadata = getattr(coordinator, "metadata", {})
+                statuses = getattr(coordinator, "statuses", {})
+                errors.extend(discovery_lane_quality_errors(coverage_items, metadata, statuses))
+                errors.extend(payload_crafter_quality_errors(coverage_items, metadata, statuses))
     if not isinstance(reports, list) or not reports:
         return errors
 

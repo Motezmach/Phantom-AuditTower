@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from phantom.report.coverage import (
+    build_surface_coverage_plan,
     coverage_quality_errors,
+    discovery_lane_quality_errors,
     normalize_coverage_item,
+    payload_crafter_quality_errors,
     validate_agent_assignment,
 )
 
@@ -62,3 +65,63 @@ def test_required_unresolved_coverage_blocks_completion() -> None:
 
 def test_empty_coverage_is_a_quality_error() -> None:
     assert coverage_quality_errors()
+
+
+def test_surface_planner_creates_concrete_lanes_and_payload_handoff() -> None:
+    plan = build_surface_coverage_plan(
+        {
+            "base_url": "http://example.test",
+            "endpoints": [
+                {
+                    "method": "POST",
+                    "path": "/api/login",
+                    "kind": "api",
+                    "parameters": [{"name": "username"}, {"name": "password"}],
+                    "auth_context": "anonymous",
+                }
+            ],
+            "observations": ["The error path returned a stack trace"],
+            "technologies": ["Tomcat"],
+        }
+    )
+
+    assert any(item["discovery_lane"] == "authentication" for item in plan)
+    assert any(item["discovery_lane"] == "injection" for item in plan)
+    assert any(item["requires_payload_crafter"] for item in plan)
+    assert any(item["discovery_lane"] == "error_disclosure" for item in plan)
+
+
+def test_lane_and_payload_quality_require_matching_handoffs() -> None:
+    item = normalize_coverage_item(
+        {
+            "title": "POST /api/login input",
+            "category": "input_validation",
+            "surface": "POST /api/login [username]",
+            "test_families": ["sql_injection"],
+            "discovery_lane": "injection",
+            "requires_payload_crafter": True,
+            "status": "confirmed",
+            "evidence": "Bounded differential reproduced.",
+        }
+    )
+    item["assigned_agent_id"] = "injector"
+    metadata = {
+        "injector": {
+            "task": "Run the bounded injection discovery lane",
+            "skills": ["vulnerabilities/sql_injection"],
+            "coverage_ids": [item["coverage_id"]],
+            "agent_type": None,
+        }
+    }
+    statuses = {"injector": "completed"}
+    assert discovery_lane_quality_errors([item], metadata, statuses) == []
+    assert payload_crafter_quality_errors([item], metadata, statuses)
+
+    metadata["crafter"] = {
+        "task": "Prepare bounded web payload mutations",
+        "skills": ["vulnerabilities/web_payload_crafting"],
+        "coverage_ids": [item["coverage_id"]],
+        "agent_type": "payload_crafter",
+    }
+    statuses["crafter"] = "completed"
+    assert payload_crafter_quality_errors([item], metadata, statuses) == []

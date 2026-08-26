@@ -149,7 +149,7 @@ return detection content, ATT&CK mapping, cleanup, and a validator handoff.
 ```
 Recon → Input surface identified → web_payload_crafting (this skill)
     → Context probe → Reproducible hypothesis?
-        → YES: create_agent(name="Web Payload Crafter", task="...", skills=["web_payload_crafting", "<context>"], agent_type="payload_crafter")
+        → YES: dispatch_required_discovery or create_agent(name="Web Payload Crafter", task="...", skills=["web_payload_crafting", "<context>"], agent_type="payload_crafter")
                → bounded mutation set + ATT&CK + detection + validator handoff
         → NO: Continue discovery or report the negative result
 ```
