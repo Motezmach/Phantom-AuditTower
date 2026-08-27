@@ -105,11 +105,7 @@ export async function fetchAll(runName?: string | null): Promise<LoadedRun> {
 }
 
 // ---------------------------------------------------------------------------
-// Local run history + report export
-//
-// These endpoints back the "Your runs" sidebar section. Auth and report-send
-// responses carry a meaningful JSON body on non-2xx statuses (an ``error``
-// code), so they read the body regardless of status rather than throwing.
+// Local run history, report export, and live-agent steering.
 // ---------------------------------------------------------------------------
 
 export interface RunSeverityCounts {
@@ -183,18 +179,6 @@ export async function steerAgent(agentId: string, message: string): Promise<Stee
     agent_id: agentId,
     message,
   });
-  if (ok && data.ok === true) return { ok: true };
-  return { ok: false, error: String(data.error ?? "unavailable") };
-}
-
-export type SubmitFeedbackResult = { ok: true } | { ok: false; error: string };
-
-/** POST /api/feedback. */
-export async function submitFeedback(
-  message: string,
-  email: string
-): Promise<SubmitFeedbackResult> {
-  const { ok, data } = await postJson("/api/feedback", { message, email });
   if (ok && data.ok === true) return { ok: true };
   return { ok: false, error: String(data.error ?? "unavailable") };
 }

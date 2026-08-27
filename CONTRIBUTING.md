@@ -1,147 +1,73 @@
 # Contributing to Phantom
 
-Thank you for your interest in contributing to Phantom! This guide will help you get started with development and contributions.
+Phantom is maintained in the 3S GitLab repository. Keep changes focused and preserve the working scan, sandbox, viewer, and reporting paths.
 
-## 🚀 Development Setup
+## Development setup
 
-### Prerequisites
+Requirements:
 
 - Python 3.12+
-- Latest Go 1.24.x patch (only for Bubble Tea TUI development and release artifacts)
-- Docker (running)
-- [uv](https://docs.astral.sh/uv/) (for dependency management)
+- [uv](https://docs.astral.sh/uv/)
+- Docker Desktop or Docker Engine
 - Git
+- Go only when changing or packaging the TUI sidecar
 
-### Local Development
-
-1. **Clone the repository**
-   ```bash
-   git clone https://gitlab.3s.com.tn/internships/audit-tower.git
-   cd phantom
-   ```
-
-2. **Install development dependencies**
-   ```bash
-   make setup-dev
-
-   # or manually:
-   uv sync
-   uv run pre-commit install
-   ```
-
-3. **Configure your LLM provider**
-   ```bash
-   export PHANTOM_LLM="openai/gpt-5.4"
-   export LLM_API_KEY="your-api-key"
-   ```
-
-4. **Run Phantom in development mode**
-   ```bash
-   uv run phantom --target https://example.com
-   ```
-
-## 📚 Contributing Skills
-
-Skills are specialized knowledge packages that enhance agent capabilities. See [phantom/skills/README.md](phantom/skills/README.md) for detailed guidelines.
-
-### Quick Guide
-
-1. **Choose the right category** (`/vulnerabilities`, `/frameworks`, `/technologies`, etc.)
-2. **Create a** `.md` file with your skill content
-3. **Include practical examples** - Working payloads, commands, or test cases
-4. **Provide validation methods** - How to confirm findings and avoid false positives
-5. **Submit via PR** with clear description
-
-## 🔧 Contributing Code
-
-### Pull Request Process
-
-1. **Create an issue first** - Describe the problem or feature
-2. **Fork and branch** - Work from the `main` branch
-3. **Make your changes** - Follow existing code style
-4. **Write/update tests** - Ensure coverage for new features
-5. **Run quality checks** - `make check-all` should pass
-6. **Submit PR** - Link to issue and provide context
-
-### PR Guidelines
-
-- **Clear description** - Explain what and why
-- **Small, focused changes** - One feature/fix per PR
-- **Include examples** - Show before/after behavior
-- **Update documentation** - If adding features
-- **Pass all checks** - Tests, linting, type checking
-
-### Code Style
-
-- Follow PEP 8 with 100-character line limit
-- Use type hints for all functions
-- Write docstrings for public methods
-- Keep functions focused and small
-- Use meaningful variable names
-
-## 🐛 Reporting Issues
-
-When reporting bugs, please include:
-
-- Python version and OS
-- Phantom version
-- LLMs being used
-- Full error traceback
-- Steps to reproduce
-- Expected vs actual behavior
-
-## 💡 Feature Requests
-
-We welcome feature ideas! Please:
-
-- Check existing issues first
-- Describe the use case clearly
-- Explain why it would benefit users
-- Consider implementation approach
-- Be open to discussion
-
-## 🖥️ Local viewer SPA
-
-`phantom view` serves a prebuilt web UI whose source lives in
-`phantom/interface/viewer/frontend/` (a Vite + React project) and whose built output is
-committed to `phantom/interface/viewer/static/` and shipped in the package. End users never
-run a JS build. If you change anything under `phantom/interface/viewer/frontend/`, rebuild
-and commit the output:
+Clone and install:
 
 ```bash
-make viewer   # or: cd phantom/interface/viewer/frontend && npm ci && npm run build
+git clone https://gitlab.3s.com.tn/internships/audit-tower.git
+cd audit-tower
+uv sync
 ```
 
-Commit both the source change and the regenerated `phantom/interface/viewer/static/`.
+PowerShell uses the same Git and uv commands. Configure a test model in the current terminal, then use an explicitly authorized test target:
 
-## Package builds
+```powershell
+$env:PHANTOM_LLM="provider/model"
+$env:LLM_API_KEY="your-api-key"
+uv run phantom --target "https://authorized.example" --scan-mode quick
+```
 
-Editable installs do not need Go; they run the TUI from source (`go run`).
+## Working on the viewer
 
-Wheels always bundle the matching Go sidecar and are platform-specific:
+The source is in `phantom/interface/viewer/frontend/`; the committed bundle is in `phantom/interface/viewer/static/`.
 
 ```bash
-make wheel
+cd phantom/interface/viewer/frontend
+npm ci
+npm run build
 ```
 
-The build hook (`scripts/tui_sidecar_hook.py`) compiles the sidecar, embeds it as
-`phantom/bin/phantom-tui`, and assigns the current platform tag. It requires Go
-1.24.x or newer and fails rather than producing a wheel without the sidecar.
-`scripts/build.sh` and `phantom.spec` are likewise strict for frozen PyInstaller
-releases.
+Commit the regenerated static bundle with the source change.
 
-## 🤝 Community
+## Working on the sandbox
 
-- **Discord**: [Join our community](https://gitlab.3s.com.tn/internships/audit-tower)
-- **Issues**: [GitHub Issues](https://gitlab.3s.com.tn/internships/audit-tower/-/issues)
+```bash
+docker build -f containers/Dockerfile -t phantom-sandbox:1.3.0 .
+```
 
-## ✨ Recognition
+The runtime container defaults to the `pentester` user, but currently retains passwordless sudo and network capabilities. Do not describe it as a strict no-root boundary.
 
-We value all contributions! Contributors will be:
-- Listed in release notes
-- Thanked in our Discord
-- Added to contributors list (coming soon)
+## Adding a skill or agent type
 
----
+Skills live under `phantom/skills/` and are Markdown playbooks loaded into agent prompts. Keep a skill focused on one testing family or technology and include:
 
-**Questions?** Reach out on [Discord](https://gitlab.3s.com.tn/internships/audit-tower) or create an issue. We're here to help!
+- scope and authorization assumptions;
+- practical testing workflow;
+- evidence and validation requirements;
+- false-positive limits;
+- remediation/reporting notes.
+
+Specialized agent types are registered in `phantom/agents/factory.py`. Add a prompt under `phantom/agents/prompts/` and update the registry and tests when adding one.
+
+## Checks before a merge request
+
+```bash
+uv run pytest -q
+git diff --check
+git status
+```
+
+Review the staged file list manually. Never commit API keys, credentials, private target data, generated `phantom_runs/`, virtual environments, or build caches.
+
+Use a focused branch and explain the behavior change, tests run, and any documentation updates in the merge request.

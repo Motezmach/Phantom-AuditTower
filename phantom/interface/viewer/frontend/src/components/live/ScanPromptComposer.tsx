@@ -8,7 +8,7 @@ import {
 } from "react";
 import { ArrowUp, ChevronDown, ChevronUp, Loader2, Sparkles } from "lucide-react";
 import { steerAgent, type TranscriptAgent } from "@/data/serverSource";
-import { track } from "@/lib/cta";
+import { track } from "@/lib/telemetry";
 import { cn } from "@/lib/utils";
 
 const ROOT_TARGET_VALUE = "__root__";

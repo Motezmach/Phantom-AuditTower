@@ -147,10 +147,9 @@ class IntegrationSettings(BaseSettings):
 class ViewerSettings(BaseSettings):
     model_config = _BASE_CONFIG
 
-    # Base URL of the Phantom relay the local viewer proxies to for email
-    # verification and encrypted report delivery. The browser never talks to
-    # the relay directly; the local server is the only caller.
-    app_url: str = Field(default="https://gitlab.3s.com.tn/internships/audit-tower", alias="PHANTOM_APP_URL")
+    # Retained only for the explicitly disabled legacy relay compatibility path.
+    # The local viewer never uses this value and has no cloud dependency.
+    app_url: str = Field(default="", alias="PHANTOM_APP_URL")
 
 
 class Settings(BaseSettings):

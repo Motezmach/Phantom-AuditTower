@@ -10,6 +10,8 @@ import urllib.request
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
+import pytest
+
 from phantom.core.paths import latest_run_dir, runs_base_dir
 from phantom.interface.viewer.cli import run_view
 from phantom.interface.viewer.server import serve
@@ -41,6 +43,14 @@ def _make_run(base: Path, name: str, *, status: str, end_time: str | None) -> Pa
     }
     (state_dir / "agents.json").write_text(json.dumps(agents), encoding="utf-8")
     return run_dir
+
+
+@pytest.fixture(autouse=True)
+def _enable_legacy_relay_for_compatibility_tests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep explicit coverage for the retired relay without enabling it in production."""
+    monkeypatch.setenv("PHANTOM_ENABLE_LEGACY_RELAY", "1")
 
 
 def test_latest_run_dir_none_when_no_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -249,6 +259,24 @@ def test_server_event_endpoint_forwards_cta(
         with urllib.request.urlopen(req) as resp:  # noqa: S310  # nosec B310
             assert resp.status == 204
         assert seen == [("PR reviews", "sidebar_nav")]
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_legacy_relay_is_disabled_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir = _make_run(tmp_path, "legacy-off", status="completed", end_time="2026-01-01T00:00:00Z")
+    _bundle(tmp_path, monkeypatch)
+    monkeypatch.delenv("PHANTOM_ENABLE_LEGACY_RELAY", raising=False)
+
+    httpd, url, token = serve(run_dir, open_browser=False)
+    try:
+        cookie = _session_cookie(url, token)
+        assert _get_status(f"{url}/api/auth/status", cookie=cookie) == 404
+        status, _ = _post(url, "/api/report/send", {}, cookie=cookie)
+        assert status == 404
     finally:
         httpd.shutdown()
         httpd.server_close()

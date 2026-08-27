@@ -62,7 +62,7 @@ def run_view(argv: list[str]) -> None:
     if not bundle_is_built():
         console.print(
             "[bold red]Viewer UI is not built.[/]\n"
-            "Build it with: [cyan]cd phantom/interface/viewer/frontend && npm ci && npm run build[/]"
+            "From the repository root, build it with: [cyan]cd phantom/interface/viewer/frontend && npm ci && npm run build[/]"
         )
         raise SystemExit(1)
 

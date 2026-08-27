@@ -5,64 +5,105 @@ description: Phantom environment variables and local settings
 
 # Configuration
 
-Phantom uses environment variables for runtime settings and stores local interactive configuration in:
+Phantom reads environment variables and uses `~/.phantom/cli-config.json` for local interactive configuration. On Windows, `~` means the current user's profile directory.
 
-    ~/.phantom/cli-config.json
+The names below are the supported Phantom configuration surface. Secrets are never committed to the repository.
 
-On Windows, this resolves under the current user's profile.
-
-## Required model settings
-
-| Variable | Purpose |
-| --- | --- |
-| PHANTOM_LLM | Model identifier sent to the configured LLM provider. |
-| LLM_API_KEY | API key for a cloud provider or a protected local endpoint; usually omitted for local servers. |
-| LLM_API_BASE | Optional OpenAI-compatible API base URL, commonly used for local servers. |
-
-## Runtime settings
+## Model and request settings
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| PHANTOM_IMAGE | phantom-sandbox:1.3.0 | Docker image used for sandbox execution. |
-| PHANTOM_RUNTIME_BACKEND | docker | Runtime backend used to execute tools. |
-| PHANTOM_SANDBOX_CPUS | unset | Optional CPU limit for a sandbox container. |
-| PHANTOM_SANDBOX_MEM_LIMIT | unset | Optional memory limit such as 4g. |
+| `PHANTOM_LLM` | required for API-key mode | Model identifier, for example `deepseek/deepseek-chat`. |
+| `LLM_API_KEY` | unset | Provider key. `OPENAI_API_KEY` is accepted as an alias. |
+| `LLM_API_BASE` | unset | OpenAI-compatible base URL. Aliases: `OPENAI_API_BASE`, `OPENAI_BASE_URL`, `LITELLM_BASE_URL`, `OLLAMA_API_BASE`. |
+| `LLM_EXTRA_HEADERS` | unset | JSON object of additional provider headers. |
+| `PHANTOM_REASONING_EFFORT` | `high` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. |
+| `PHANTOM_FORCE_REQUIRED_TOOL_CHOICE` | `false` | Request required tool use where the provider supports it. |
+| `PHANTOM_PROMPT_CACHE` | `true` | Enable prompt caching where supported. |
+| `LLM_DISABLE_STREAMING` | `false` | Disable streamed model responses. |
+| `LLM_TIMEOUT` | `300` seconds | Overall model request timeout. |
+| `LLM_STREAM_IDLE_TIMEOUT` | `300` seconds | Maximum idle time while receiving a stream. |
+| `LLM_MAX_TOOL_CALLS_PER_TURN` | `32` | Tool-call limit for one agent turn. |
 
-Example PowerShell configuration:
+## Optional deduplication model
 
-    $env:PHANTOM_LLM="deepseek/deepseek-chat"
-    $env:LLM_API_KEY="your-api-key"
-    $env:PHANTOM_IMAGE="phantom-sandbox:1.3.0"
-    $env:PHANTOM_RUNTIME_BACKEND="docker"
-    $env:PHANTOM_SANDBOX_CPUS="2"
-    $env:PHANTOM_SANDBOX_MEM_LIMIT="4g"
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PHANTOM_DEDUPE_MODEL` | unset | Separate model used for duplicate-finding review. |
+| `PHANTOM_DEDUPE_REASONING_EFFORT` | unset | Reasoning effort for that model. |
+| `DEDUPE_LLM_API_KEY` | unset | Key for the deduplication provider. |
+| `DEDUPE_LLM_API_BASE` | unset | Base URL for the deduplication provider. |
+| `DEDUPE_LLM_EXTRA_HEADERS` | unset | JSON headers for the deduplication provider. |
 
-Example Bash configuration:
+## Runtime and sandbox settings
 
-    export PHANTOM_LLM="deepseek/deepseek-chat"
-    export LLM_API_KEY="your-api-key"
-    export PHANTOM_IMAGE="phantom-sandbox:1.3.0"
-    export PHANTOM_RUNTIME_BACKEND="docker"
-    export PHANTOM_SANDBOX_CPUS="2"
-    export PHANTOM_SANDBOX_MEM_LIMIT="4g"
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PHANTOM_IMAGE` | `phantom-sandbox:1.3.0` | Docker image used for tool execution. |
+| `PHANTOM_RUNTIME_BACKEND` | `docker` | Runtime backend. Docker is the built-in backend. |
+| `PHANTOM_SANDBOX_CPUS` | unset | Optional CPU limit, such as `2`. |
+| `PHANTOM_SANDBOX_MEM_LIMIT` | unset | Optional memory limit, such as `4g`. |
+| `PHANTOM_SANDBOX_SHM_SIZE` | Docker default | Optional shared-memory size. |
+| `PHANTOM_SANDBOX_PIDS_LIMIT` | Docker default | Optional process limit. |
+| `PHANTOM_DOCKER_SANDBOX_NETWORK` | Docker default | Attach the container to a named Docker network. |
+| `PHANTOM_UPSTREAM_PROXY` | unset | Optional upstream proxy URL passed to the sandbox. |
+| `PHANTOM_MAX_CONTEXT_IMAGES` | `3` | Maximum live image outputs retained per agent context; `0` disables retention. |
+| `PHANTOM_SANDBOX_LOG_MAX_SIZE` | `50m` | Maximum size of one container JSON log file. |
+| `PHANTOM_SANDBOX_LOG_MAX_FILE` | `3` | Number of rotated container log files. |
+| `PHANTOM_CAIDO_ALLOWED_DOMAINS` | unset | Optional allowed-domain setting consumed by the sandbox entrypoint. |
 
-For a local Ollama server, replace the model and key settings with:
+## Diagnostics and update checks
 
-    export PHANTOM_LLM="ollama/qwen3-vl"
-    export LLM_API_BASE="http://localhost:11434"
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PHANTOM_DEBUG` | `false` | Enable debug logging for troubleshooting. |
+| `PHANTOM_NO_UPDATE_CHECK` | unset/off | Disable the background update check. CI environments disable it automatically. |
 
-The sandbox image is independent of the LLM provider. Build it once locally and
-switch providers by changing these environment variables; no image rebuild is
-needed.
+## Context and integrations
 
-## Run storage
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PHANTOM_CONTEXT_AUTO_COMPACT` | `true` | Compact long agent histories automatically. |
+| `PHANTOM_CONTEXT_BUFFER_TOKENS` | `20000` | Context headroom before compaction. |
+| `PHANTOM_CONTEXT_KEEP_TOKENS` | `8000` | History retained during compaction. |
+| `PHANTOM_CONTEXT_FALLBACK_TOKENS` | `200000` | Fallback context threshold. |
+| `PHANTOM_CONTEXT_SUMMARY_TOKENS` | `4096` | Maximum compaction summary size. |
+| `PHANTOM_TOOL_OUTPUT_MAX_TOKENS` | `8000` | Tool-output token bound. |
+| `PHANTOM_TOOL_OUTPUT_MAX_LINES` | `2000` | Tool-output line bound. |
+| `PHANTOM_TOOL_OUTPUT_MAX_BYTES` | `51200` | Tool-output byte bound. |
+| `PHANTOM_TELEMETRY` | `true` | Enable anonymous operational telemetry; set `false` to opt out. |
+| `PERPLEXITY_API_KEY` | unset | Optional web-search integration. |
+| `POSTMAN_API_KEY` | unset | Optional live Postman collection lookup. |
 
-Each assessment is written under:
+## Retired relay compatibility
 
-    phantom_runs/<run-name>/
+The old email/cloud relay handlers are disabled by default and are not part of
+the local Phantom workflow. They remain only for compatibility tests:
 
-The runtime log is:
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PHANTOM_ENABLE_LEGACY_RELAY` | unset/off | Explicitly enable the retired relay endpoints. Do not set this for normal local use. |
+| `PHANTOM_APP_URL` | empty | Relay base URL read only when the legacy flag is enabled. |
 
-    phantom_runs/<run-name>/phantom.log
+## Examples
 
-Only the documented `PHANTOM_*` variables are part of Phantom's public configuration.
+PowerShell:
+
+```powershell
+$env:PHANTOM_LLM="deepseek/deepseek-chat"
+$env:LLM_API_KEY="your-api-key"
+$env:PHANTOM_IMAGE="phantom-sandbox:1.3.0"
+$env:PHANTOM_RUNTIME_BACKEND="docker"
+$env:PHANTOM_SANDBOX_CPUS="2"
+$env:PHANTOM_SANDBOX_MEM_LIMIT="4g"
+```
+
+Bash:
+
+```bash
+export PHANTOM_LLM="ollama/qwen3-vl"
+export LLM_API_BASE="http://localhost:11434"
+export PHANTOM_IMAGE="phantom-sandbox:1.3.0"
+```
+
+Run-specific labels `PHANTOM_RUN_ID` and `PHANTOM_RUN_TYPE` are set by integrations that want Docker labels; they are not needed for a normal scan.

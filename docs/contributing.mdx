@@ -1,113 +1,55 @@
 ---
-title: "Contributing"
-description: "Contribute to Phantom development"
+title: Contributing
+description: Contribute to Phantom development
 ---
 
-## Development Setup
+# Contributing
 
-### Prerequisites
+Phantom is maintained in the 3S GitLab repository. Keep changes focused and preserve the working scan, sandbox, viewer, and reporting paths.
 
-- Python 3.12+
-- Latest Go 1.24.x patch (only for Bubble Tea TUI development and release artifacts)
-- Docker (running)
-- [uv](https://docs.astral.sh/uv/)
-- Git
-
-### Local Development
-
-<Steps>
-  <Step title="Clone the repository">
-    ```bash
-    git clone https://gitlab.3s.com.tn/internships/audit-tower.git
-    cd phantom
-    ```
-  </Step>
-  <Step title="Install dependencies">
-    ```bash
-    make setup-dev
-
-    # or manually:
-    uv sync
-    uv run pre-commit install
-    ```
-  </Step>
-  <Step title="Configure LLM">
-    ```bash
-    export PHANTOM_LLM="openai/gpt-5.4"
-    export LLM_API_KEY="your-api-key"
-    ```
-  </Step>
-  <Step title="Run Phantom">
-    ```bash
-    uv run phantom --target https://example.com
-    ```
-  </Step>
-</Steps>
-
-## Contributing Skills
-
-Skills are specialized knowledge packages that enhance agent capabilities. They live in `phantom/skills/`
-
-### Creating a Skill
-
-1. Choose the right category
-2. Create a `.md` file with YAML frontmatter (`name` and `description` fields)
-3. Include practical examples—working payloads, commands, test cases
-4. Provide validation methods to confirm findings
-5. Submit via PR
-
-## Contributing Code
-
-### Pull Request Process
-
-1. **Create an issue first** — Describe the problem or feature
-2. **Fork and branch** — Work from `main`
-3. **Make changes** — Follow existing code style
-4. **Write tests** — Ensure coverage for new features
-5. **Run checks** — `make check-all` should pass
-6. **Submit PR** — Link to issue and provide context
-
-### Code Style
-
-- PEP 8 with 100-character line limit
-- Type hints for all functions
-- Docstrings for public methods
-- Small, focused functions
-- Meaningful variable names
-
-## Package Builds
-
-Editable installs do not require Go; they run the TUI from source (`go run`).
-
-Wheels are intentionally strict: they always bundle the matching Go sidecar and
-are platform-specific.
+## Setup
 
 ```bash
-make wheel
+git clone https://gitlab.3s.com.tn/internships/audit-tower.git
+cd audit-tower
+uv sync
 ```
 
-The build hook (`scripts/tui_sidecar_hook.py`) requires Go 1.24.x or newer, embeds
-the sidecar as `phantom/bin/phantom-tui`, and assigns the current platform tag.
-Frozen releases built by `scripts/build.sh` and `phantom.spec` also require the
-sidecar.
+PowerShell and Bash use the same clone/install commands. Go is only needed when changing or packaging the TUI sidecar. Docker is needed for sandbox-backed scans.
 
-## Reporting Issues
+## Local checks
 
-Include:
+```bash
+uv run pytest -q
+git diff --check
+```
 
-- Python version and OS
-- Phantom version (`phantom --version`)
-- LLM being used
-- Full error traceback
-- Steps to reproduce
+Build the sandbox with:
 
-## Community
+```bash
+docker build -f containers/Dockerfile -t phantom-sandbox:1.3.0 .
+```
 
-<CardGroup cols={2}>
-  <Card title="Discord" icon="discord" href="https://gitlab.3s.com.tn/internships/audit-tower">
-    Join the community for help and discussion.
-  </Card>
-  <Card title="GitHub Issues" icon="github" href="https://gitlab.3s.com.tn/internships/audit-tower/-/issues">
-    Report bugs and request features.
-  </Card>
-</CardGroup>
+The viewer source is in `phantom/interface/viewer/frontend/`. If it changes:
+
+```bash
+cd phantom/interface/viewer/frontend
+npm ci
+npm run build
+```
+
+Commit the regenerated bundle under `phantom/interface/viewer/static/`.
+
+## Skills and agent types
+
+Skills live under `phantom/skills/`. A good skill states its scope, workflow, evidence requirements, validation method, false-positive limits, and reporting guidance.
+
+Specialized agent types are registered in `phantom/agents/factory.py` and receive prompts from `phantom/agents/prompts/`.
+
+## Merge request checklist
+
+- Tests pass, or the failure is explained.
+- `git diff --check` is clean.
+- No API keys, credentials, private targets, generated `phantom_runs/`, virtual environments, or build caches are staged.
+- Documentation matches the public `phantom` command and `PHANTOM_*` configuration.
+- The merge request explains the behavior change and verification performed.

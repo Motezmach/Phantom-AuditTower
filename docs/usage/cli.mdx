@@ -1,36 +1,55 @@
 ---
 title: CLI reference
-description: Common Phantom command-line options
+description: Phantom command-line options and exit codes
 ---
 
 # CLI reference
 
-Show all available options:
+The public executable is `phantom`. Run `uv run phantom` from the repository, or call `phantom` after installing the standalone binary.
 
-    uv run phantom --help
+## Commands
 
-## Common commands
+| Command | Purpose |
+| --- | --- |
+| `phantom --help` | Show options and examples. |
+| `phantom --version` | Print the installed version. |
+| `phantom view [RUN_NAME]` | Open the local viewer for the latest or selected run. |
+| `phantom --resume RUN_NAME` | Resume a prior run from its `phantom_runs/` directory. |
+| `phantom auth ...` | Manage optional ChatGPT subscription authentication. It is not required for API-key or local-model scans. |
+| `phantom --update` | Update a standalone binary, or print the appropriate update path for a source/uv install. |
 
-Run an authorized scan:
+## Scan options
 
-    uv run phantom --target "http://demo.testfire.net/" --scan-mode quick
+| Option | Meaning |
+| --- | --- |
+| `-t, --target TARGET` | URL, domain, IP, local directory, repository, API specification, Postman export, or `postman://` collection. Repeat for multiple targets. |
+| `--target-list PATH` | File containing one target per non-empty, non-comment line. Repeatable and combinable with `--target`. |
+| `--instruction TEXT` | Custom scope, credentials, or testing priorities. |
+| `--instruction-file PATH` | Read custom instructions from a file. Do not combine with `--instruction`. |
+| `--workspace-file PATH[:DEST]` | Mount a local file read-only into the sandbox workspace. Repeatable. |
+| `-m, --scan-mode {quick,standard,deep}` | Select fast, routine, or thorough scan guidance. Default: `deep`. |
+| `--scope-mode {auto,diff,full}` | Code-target scope behavior. Default: `auto`. |
+| `--diff-base REF` | Branch or commit used for code diff scope. |
+| `-n, --non-interactive` | Run without the TUI; suitable for CI. |
+| `--config PATH` | Use a JSON config file instead of the default local config. |
+| `--max-budget USD` | Optional positive LLM-cost limit. Alias: `--max-budget-usd`. |
+| `--max-turns N` | Maximum turns per agent. Default: 500. |
+| `--resume RUN_NAME` | Continue an existing run rather than starting a new one. |
 
-Open the viewer:
+## Scan modes
 
-    uv run phantom view
-    uv run phantom view <run-name>
+- **quick** — shorter, lower-cost checks for a first pass or CI.
+- **standard** — normal assessment depth.
+- **deep** — broadest prompt guidance and testing time; default.
 
-Resume a previous run:
+The model and target determine the actual work. A scan mode guides the root agent; it is not a promise that every target exposes the same surfaces.
 
-    uv run phantom --resume <run-name>
+## Exit codes
 
-## Common options
+For headless scans:
 
-- --target — target URL or target definition for the engagement.
-- --scan-mode — quick, standard, or deep.
-- --resume — continue a named run.
-- --max-budget — cap model spend when supported by the selected provider.
-- --max-turns — cap orchestration turns when supported.
-- --help — show command help.
+- `0` — completed without vulnerability reports.
+- `1` — setup or execution error.
+- `2` — scan completed and vulnerability reports were produced.
 
-Use a small, authorized target while validating a new configuration.
+Interactive runs show the same outcome in the TUI and write the run record regardless of exit status.

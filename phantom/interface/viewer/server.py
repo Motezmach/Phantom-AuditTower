@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import os
 import re
 import secrets
 import threading
@@ -28,7 +29,6 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 
 from phantom.core.paths import run_record_path
-from phantom.interface.viewer import auth
 from phantom.interface.viewer.transcript import (
     build_run_state,
     primary_target,
@@ -44,6 +44,18 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+_LEGACY_RELAY_ENV = "PHANTOM_ENABLE_LEGACY_RELAY"
+
+
+def _legacy_relay_enabled() -> bool:
+    """Return whether the retired cloud/email compatibility endpoints are enabled."""
+    return os.environ.get(_LEGACY_RELAY_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def bundle_dir() -> Path:
@@ -168,6 +180,14 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
             try:
                 if path == "/api/event":
                     self._handle_event()
+                elif path in {
+                    "/api/auth/otp/start",
+                    "/api/auth/otp/verify",
+                    "/api/auth/forget",
+                    "/api/report/send",
+                    "/api/feedback",
+                } and not _legacy_relay_enabled():
+                    self._send_json(HTTPStatus.NOT_FOUND, {"error": "legacy endpoint disabled"})
                 elif path == "/api/auth/otp/start":
                     self._handle_otp_start()
                 elif path == "/api/auth/otp/verify":
@@ -245,8 +265,11 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 # coordinator + event loop (the TUI launcher wires a handler).
                 self._send_json(HTTPStatus.OK, {"can_steer": state.steer_handler is not None})
                 return
-            if path == "/api/auth/status":
+            if path == "/api/auth/status" and _legacy_relay_enabled():
                 self._handle_auth_status()
+                return
+            if path == "/api/auth/status":
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "legacy endpoint disabled"})
                 return
 
             # All remaining GET endpoints expose run metadata or scan output.
@@ -292,6 +315,8 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown endpoint"})
 
         def _handle_auth_status(self) -> None:
+            from phantom.interface.viewer import auth
+
             # The cached verified email is only disclosed to a caller holding this
             # process's session capability, so a cookie-less client on an exposed
             # --host port cannot read it; everyone else looks unverified.
@@ -311,6 +336,8 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
             )
 
         def _handle_otp_start(self) -> None:
+            from phantom.interface.viewer import auth
+
             if not self._has_session():
                 self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
                 return
@@ -326,6 +353,8 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
             self._send_json(HTTPStatus.OK, {"ok": True})
 
         def _handle_otp_verify(self) -> None:
+            from phantom.interface.viewer import auth
+
             if not self._has_session():
                 self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
                 return
@@ -349,6 +378,8 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
             self._send_json(HTTPStatus.OK, {"verified": True, "email": verified_email})
 
         def _handle_forget(self) -> None:
+            from phantom.interface.viewer import auth
+
             # Clearing the cached verification is a state change, so it requires
             # this process's session capability: a cookie-less caller on an
             # exposed --host port must not be able to log the operator out.
@@ -359,6 +390,8 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
             self._send_json(HTTPStatus.OK, {"ok": True})
 
         def _handle_report_send(self) -> None:
+            from phantom.interface.viewer import auth
+
             if not self._has_session():
                 self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
                 return
@@ -402,6 +435,8 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
         _FEEDBACK_MESSAGE_MAX = 5000
 
         def _handle_feedback(self) -> None:
+            from phantom.interface.viewer import auth
+
             # Requires this process's session capability, like the other POSTs,
             # so an exposed --host port can't be used to spam the relay.
             if not self._has_session():
@@ -459,7 +494,7 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
             else:
                 self._send_json(HTTPStatus.OK, {"ok": False, "error": "not_delivered"})
 
-        def _send_relay_error(self, exc: auth.RelayError) -> None:
+        def _send_relay_error(self, exc: Any) -> None:
             status_by_code = {
                 "rate_limited": HTTPStatus.TOO_MANY_REQUESTS,
                 "invalid_email": HTTPStatus.BAD_REQUEST,

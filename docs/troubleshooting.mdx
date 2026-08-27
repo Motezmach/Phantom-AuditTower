@@ -5,58 +5,81 @@ description: Common Phantom setup and runtime issues
 
 # Troubleshooting
 
-## Docker is unavailable
+## First checks
 
-Confirm Docker Desktop or Docker Engine is running:
+From the repository root, confirm:
 
-    docker info
+```text
+uv --version
+docker info
+docker image inspect phantom-sandbox:1.3.0
+```
 
-Then retry the scan. Phantom uses the configured Docker backend by default.
+If `uv` is not found, install it from the [uv installation guide](https://docs.astral.sh/uv/), then reopen the terminal. Start Docker Desktop before running Phantom.
 
-## The model or API key is missing
+## Model configuration
+
+Check the variables in the same terminal that launches Phantom.
 
 PowerShell:
 
-    Get-ChildItem Env:PHANTOM_LLM
-    Get-ChildItem Env:LLM_API_KEY
+```powershell
+Get-ChildItem Env:PHANTOM_LLM
+Get-ChildItem Env:LLM_API_KEY
+Get-ChildItem Env:LLM_API_BASE
+```
 
 Bash:
 
-    printenv PHANTOM_LLM
-    printenv LLM_API_KEY
+```bash
+printenv PHANTOM_LLM
+printenv LLM_API_KEY
+printenv LLM_API_BASE
+```
 
-Set them in the same terminal from which Phantom is launched.
+For DeepSeek or another cloud provider, use the provider's exact model identifier and a current key. For Ollama, use `LLM_API_BASE` and normally omit the API key. Never paste a real key into a report, issue, or commit.
 
-## The sandbox image cannot be found
+## Sandbox image
 
-Inspect the default image:
+Build the local image if inspection fails:
 
-    docker image inspect phantom-sandbox:1.3.0
+```text
+docker build -f containers/Dockerfile -t phantom-sandbox:1.3.0 .
+```
 
-Build it with:
+If you use another image, set `PHANTOM_IMAGE` in the same terminal before launching the scan.
 
-    docker build -f containers/Dockerfile -t phantom-sandbox:1.3.0 .
+## Windows notes
 
-Or set PHANTOM_IMAGE to an existing local image.
+Use PowerShell syntax for environment variables:
 
-## The viewer does not show the latest run
+```powershell
+$env:PHANTOM_LLM="provider/model"
+$env:LLM_API_KEY="your-api-key"
+```
 
-Start the viewer with the exact run name:
+Bash syntax such as `export ...` does not set a PowerShell variable. Python 3.12 is the supported baseline; if a local virtual environment was created with another Python version, remove and recreate it with the supported interpreter before running `uv sync`.
 
-    uv run phantom view <run-name>
+## Viewer and PDF
 
-Refresh the browser after the scan completes. If an older viewer process is still running, stop it and start it again.
+Use the exact run name printed by the scan:
 
-## PDF download fails
+```text
+uv run phantom view <run-name>
+```
 
-Confirm that the run has a completed report and that the viewer is serving the same run. Inspect the browser developer console and the run's phantom.log. A 404 usually means the viewer process is pointing at an older build or a run without the report endpoint; restart the viewer from the current checkout.
+The viewer must be started from the current checkout so it serves the matching local API and static bundle. A PDF download is available only after the run is marked finished. If the browser reports a 404 for `/api/report/pdf`, stop an older viewer process and reopen it from the current checkout.
 
-## Where to look for evidence
+## Interrupted scans
 
-Start with:
+A disconnected model or network can leave a resumable run:
 
-    phantom_runs/<run-name>/phantom.log
-    phantom_runs/<run-name>/run.json
-    phantom_runs/<run-name>/penetration_test_report.md
+```text
+uv run phantom --resume <run-name>
+```
 
-Do not delete run directories until the report and evidence have been copied to the approved project location.
+Inspect `phantom_runs/<run-name>/run.json` and `phantom.log` before deciding whether to resume. A partial run should not be treated as a completed report.
+
+## Evidence and cleanup
+
+Keep the run directory until the report and evidence have been copied to the approved engagement location. Never commit API keys, private target data, or generated `phantom_runs/` directories.

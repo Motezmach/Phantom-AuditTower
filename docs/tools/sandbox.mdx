@@ -1,49 +1,58 @@
 ---
-title: Sandbox
-description: Build and configure the Phantom Docker sandbox
+title: Docker sandbox
+description: Phantom's local Kali-based execution environment
 ---
 
-# Phantom sandbox
+# Docker sandbox
 
-The sandbox is the Docker execution environment used by agents for assessment work. It keeps tool execution separate from the host and gives every run a repeatable environment.
+Phantom runs agent tools in a local Docker container. The default image is:
 
-## Use the Phantom image
-
-The default image is:
-
-    phantom-sandbox:1.3.0
+```text
+phantom-sandbox:1.3.0
+```
 
 Build it from the repository root:
 
-    docker build -f containers/Dockerfile -t phantom-sandbox:1.3.0 .
+```bash
+docker build -f containers/Dockerfile -t phantom-sandbox:1.3.0 .
+```
 
-Or use the helper script from Bash:
+The image is based on `kalilinux/kali-rolling`. It is independent of the LLM provider and only needs to be built or pulled once per machine.
 
-    bash scripts/docker.sh 1.3.0
+## Privileges and boundaries
 
-If the image has another local tag, set:
-
-    PHANTOM_IMAGE=your-local-image:tag
+- Runtime commands run as the `pentester` user, not as root.
+- `pentester` belongs to the sudo group and has passwordless sudo. The image is therefore non-root by default, but it is not a strict no-root sandbox.
+- Phantom adds Docker capabilities `NET_ADMIN` and `NET_RAW`. Nmap receives the required network file capabilities during the image build.
+- The container can reach the host through `host.docker.internal`, which is useful for an authorized local application.
+- The run workspace is mounted at `/workspace`. Extra workspace files are mounted read-only.
+- Caido is started in the container for proxy capture and normally exposes port `48080`.
+- The image contains the tools and runtimes needed by the agent; the model itself runs outside the container.
 
 ## Resource limits
 
-Limits are optional:
+CPU and memory are not capped unless configured. Set limits before starting a scan:
 
-    PHANTOM_SANDBOX_CPUS=2
-    PHANTOM_SANDBOX_MEM_LIMIT=4g
+PowerShell:
 
-Use limits appropriate for the host and the size of the assessment. Docker must be running before Phantom starts a scan.
+```powershell
+$env:PHANTOM_SANDBOX_CPUS="2"
+$env:PHANTOM_SANDBOX_MEM_LIMIT="4g"
+$env:PHANTOM_SANDBOX_SHM_SIZE="1g"
+$env:PHANTOM_SANDBOX_PIDS_LIMIT="512"
+```
 
-## Troubleshooting the sandbox
+Bash:
 
-Check that the image exists:
+```bash
+export PHANTOM_SANDBOX_CPUS="2"
+export PHANTOM_SANDBOX_MEM_LIMIT="4g"
+export PHANTOM_SANDBOX_SHM_SIZE="1g"
+export PHANTOM_SANDBOX_PIDS_LIMIT="512"
+```
 
-    docker image inspect phantom-sandbox:1.3.0
+Container JSON logs are limited by default to `50m` per file and three rotated files. See [Configuration](../advanced/configuration) for all Docker-related settings.
 
-Check that Docker is reachable:
+## Lifecycle
 
-    docker info
-
-If Phantom reports that the image is missing, build it or set PHANTOM_IMAGE to an image that exists locally.
-
-The sandbox identity was changed for Phantom while preserving the working baseline image and tool behavior. This documentation does not claim a change to container privilege policy.
+Phantom creates the container when a scan needs a sandbox and removes it during normal cleanup. If a run is interrupted, check Docker before manually removing a container. Run artifacts remain in `phantom_runs/<run-name>/` and are separate from the image.

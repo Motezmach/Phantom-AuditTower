@@ -1,4 +1,9 @@
-"""Viewer email verification state and the relay client.
+"""Legacy viewer email verification state and relay client.
+
+This module is retained only for compatibility with the retired relay endpoints.
+Those endpoints are disabled by default; the local Phantom viewer does not import
+this module during normal operation. Enable ``PHANTOM_ENABLE_LEGACY_RELAY=1``
+only when explicitly maintaining that compatibility path.
 
 The local viewer proxies email verification and encrypted-report delivery to
 the Phantom relay (``PHANTOM_APP_URL``). The browser never talks to the relay

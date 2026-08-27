@@ -1,50 +1,59 @@
 ---
 title: Reports
-description: Phantom run artifacts and report formats
+description: Phantom run artifacts, validation, and exports
 ---
 
 # Reports
 
-Phantom keeps reports and evidence locally so an assessment can be reviewed without a cloud account.
+Phantom stores evidence and reports locally. A run lives under:
 
-## Run directory
+```text
+phantom_runs/<run-name>/
+```
 
-Each run is stored under:
+## Artifacts
 
-    phantom_runs/<run-name>/
-
-Common artifacts:
-
-| Artifact | Purpose |
+| Path | Purpose |
 | --- | --- |
-| run.json | Run metadata, state, model, target summary, and timing. |
-| phantom.log | Runtime, agent, and orchestration events. |
-| penetration_test_report.md | Main human-readable report. |
-| vulnerabilities/ | Individual finding reports and evidence. |
-| JSON export | Structured findings for automation. |
-| CSV export | Spreadsheet-friendly finding summary. |
-| SARIF export | Findings for compatible code-security workflows. |
+| `run.json` | Run metadata, targets, scan mode, model metadata, status, timing, and usage. |
+| `phantom.log` | Runtime, agent, orchestration, and error events. |
+| `penetration_test_report.md` | Main human-readable report. |
+| `attack_paths.md` | Standalone evidence-backed attack-path summary. |
+| `coverage.md` | Human-readable coverage ledger. |
+| `coverage.json` | Structured coverage items and statuses. |
+| `vulnerabilities/` | One Markdown report per finding. |
+| `vulnerabilities.json` | Structured findings, validation, impact, CVSS, and MITRE data. |
+| `vulnerabilities.csv` | Spreadsheet-friendly finding summary. |
+| `findings.sarif` | SARIF export for compatible security workflows. |
+| `.state/` | Resumable agent state and internal run metadata. Treat as private run data. |
+
+Some files may be absent for an interrupted or very early run. Do not treat a partial run as a clean assessment.
+
+## Finding quality
+
+A report-ready finding should identify the target and endpoint, explain the weakness and impact, include reproduction evidence or a proof of impact, state validation status and limitations, and provide remediation.
+
+Severity is normalized against the CVSS base score. An impact narrative or possible follow-on chain does not silently change the finding's base severity.
+
+## MITRE ATT&CK
+
+MITRE mapping is evidence-aware:
+
+- Phantom records a technique when the demonstrated behavior corresponds to an ATT&CK technique.
+- High-confidence web cases may receive an inferred mapping, such as exploitation of a public-facing application.
+- A generic configuration or application weakness may correctly have no direct ATT&CK technique.
+- Phantom does not invent a mapping only to fill a field. The mapping, rationale, and evidence are kept with the structured finding when applicable.
+
+Review the mapping in `vulnerabilities.json` and the individual finding Markdown before using it as an incident-response or threat-emulation claim.
 
 ## Viewer and PDF
 
-Open the local viewer with:
+Open a selected run with:
 
-    uv run phantom view <run-name>
+```text
+uv run phantom view <run-name>
+```
 
-Use the Download PDF action for the selected run. The PDF is generated locally and saved by the browser.
+The local dashboard reads the run from disk. **Download PDF** calls the local `/api/report/pdf` endpoint and saves a normal PDF through the browser. No email relay, account, password, or cloud service is needed.
 
-## What a finding should contain
-
-A useful finding includes:
-
-- Title and severity.
-- Affected target and endpoint.
-- Clear technical description.
-- Impact and realistic attack path.
-- Reproduction steps or proof of impact.
-- Evidence collected by the agent.
-- Validation status and false-positive considerations.
-- Remediation guidance.
-- MITRE ATT&CK mapping when the behavior is applicable.
-
-Do not include API keys, passwords, or unrelated private data in reports.
+Do not include API keys, passwords, session cookies, or unrelated private data in a report shared outside the engagement.
