@@ -8,16 +8,16 @@ import logging
 from typing import Any
 
 from agents import RunContextWrapper, function_tool
-
 from phantom.core.agents import coordinator_from_context
 from phantom.report.coverage import (
-    DISCOVERY_LANE_SPECS,
     _PAYLOAD_CONTEXT_SKILLS,
+    DISCOVERY_LANE_SPECS,
     build_surface_coverage_plan,
     validate_agent_assignment,
 )
 from phantom.report.state import get_global_report_state
 from phantom.skills import validate_requested_skills
+from phantom.tools.notes.tools import get_recon_notes_for_surface_planner
 
 
 logger = logging.getLogger(__name__)
@@ -149,7 +149,14 @@ async def plan_surface_coverage(
         return json.dumps({"success": False, "error": "surface_map must be an object"})
 
     try:
-        plan = build_surface_coverage_plan(surface_map)
+        recon_notes = await asyncio.to_thread(get_recon_notes_for_surface_planner)
+        planning_map = dict(surface_map)
+        if recon_notes:
+            planning_map["recon_notes"] = [
+                {"title": note.get("title", ""), "content": note.get("content", "")}
+                for note in recon_notes
+            ]
+        plan = build_surface_coverage_plan(planning_map)
     except (TypeError, ValueError) as exc:
         return json.dumps({"success": False, "error": f"Invalid surface map: {exc!s}"})
 
@@ -167,6 +174,11 @@ async def plan_surface_coverage(
             "success": not errors,
             "planner": "recon_surface_map_v1",
             "planned": len(written),
+            "surface_items": sum(item.get("coverage_kind") == "surface" for item in written),
+            "payload_crafter_items": sum(
+                bool(item.get("requires_payload_crafter")) for item in written
+            ),
+            "recon_notes_used": bool(recon_notes),
             "items": written,
             "errors": errors,
         },
@@ -303,70 +315,92 @@ async def dispatch_required_discovery(ctx: RunContextWrapper[Any]) -> str:
             errors.append(f"{lane}: child spawn failed: {exc!s}")
 
     # Payload crafting is deterministic for concrete parser/input contexts.
-    # It is intentionally bounded to one coverage item per handoff so the
-    # specialist has an exact endpoint/parameter contract.
+    # Several lanes can identify the same endpoint, so group those obligations
+    # into one specialist handoff instead of multiplying agents for one input.
     current_items = report_state.list_coverage_items()
     payload_metadata = getattr(coordinator, "metadata", {})
     payload_statuses = getattr(coordinator, "statuses", {})
+    payload_groups: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
     for item in current_items:
         if not item.get("requires_payload_crafter"):
             continue
         coverage_id = str(item.get("coverage_id") or "")
+        route = str(item.get("route") or item.get("surface") or coverage_id).casefold()
+        method = str(item.get("method") or "GET").upper()
+        parameter = str(item.get("parameter") or "").casefold()
+        auth_context = str(item.get("auth_context") or "").casefold()
+        payload_groups.setdefault((route, method, parameter, auth_context), []).append(item)
+
+    for group in payload_groups.values():
+        representative = group[0]
+        coverage_ids = [
+            str(item.get("coverage_id")) for item in group if item.get("coverage_id")
+        ]
         if any(
             meta.get("agent_type") == "payload_crafter"
-            and coverage_id in {str(value) for value in meta.get("coverage_ids") or []}
+            and set(coverage_ids).intersection(
+                {str(value) for value in meta.get("coverage_ids") or []}
+            )
             and payload_statuses.get(agent_id) not in {"failed", "crashed", "stopped"}
             for agent_id, meta in payload_metadata.items()
             if isinstance(meta, dict)
         ):
             continue
-        families = [str(value).casefold() for value in item.get("test_families") or []]
-        context_skill = next(
-            (skill for family, skill in _PAYLOAD_CONTEXT_SKILLS.items() if family in families),
-            None,
+        families = sorted(
+            {
+                str(value).casefold()
+                for item in group
+                for value in item.get("test_families") or []
+                if str(value).strip()
+            }
         )
         skills = ["vulnerabilities/web_payload_crafting"]
-        if context_skill:
-            skills.append(context_skill)
+        for family, context_skill in _PAYLOAD_CONTEXT_SKILLS.items():
+            if family in families and context_skill not in skills:
+                skills.append(context_skill)
         task = (
             "Prepare a bounded web payload mutation set for exactly this concrete in-scope "
             "surface. Include the baseline request context, parser/rendering assumptions, "
             "safe oracle, stop conditions, detection pairing, ATT&CK mapping, cleanup, and "
             "a validator handoff. Do not broaden the target or perform unrelated testing.\n\n"
-            f"Coverage ID: {coverage_id}\n"
-            f"Surface: {_scope_line(item)}\n"
+            f"Coverage IDs: {', '.join(coverage_ids)}\n"
+            f"Surface: {_scope_line(representative)}\n"
             f"Test families: {', '.join(families)}"
         )
         assignment_error = validate_agent_assignment(
             agent_type="payload_crafter",
             task=task,
-            coverage_ids=[coverage_id],
+            coverage_ids=coverage_ids,
             existing_items=current_items,
         )
         if assignment_error:
-            errors.append(f"{coverage_id}: {assignment_error}")
+            errors.append(f"{', '.join(coverage_ids)}: {assignment_error}")
             continue
         try:
             result = await spawner(
                 parent_ctx=inner,
-                name=f"Payload Crafter — {item.get('title') or coverage_id}",
+                name=f"Payload Crafter — {representative.get('title') or coverage_ids[0]}",
                 task=task,
                 skills=skills,
                 parent_history=parent_history,
                 agent_type="payload_crafter",
-                coverage_ids=[coverage_id],
+                coverage_ids=coverage_ids,
             )
             payload_agents.append(result)
             if isinstance(result, dict) and result.get("success"):
-                updated = {
-                    **item,
-                    "payload_crafter_status": "spawned",
-                    "payload_crafter_agent_id": result.get("agent_id"),
-                }
-                await asyncio.to_thread(report_state.upsert_coverage_item, updated)
+                for item in group:
+                    updated = {
+                        **item,
+                        "payload_crafter_status": "spawned",
+                        "payload_crafter_agent_id": result.get("agent_id"),
+                    }
+                    await asyncio.to_thread(report_state.upsert_coverage_item, updated)
         except Exception as exc:
-            logger.exception("dispatch_required_discovery: failed payload handoff=%s", coverage_id)
-            errors.append(f"{coverage_id}: payload crafter spawn failed: {exc!s}")
+            logger.exception(
+                "dispatch_required_discovery: failed payload handoff=%s",
+                ",".join(coverage_ids),
+            )
+            errors.append(f"{', '.join(coverage_ids)}: payload crafter spawn failed: {exc!s}")
 
     return json.dumps(
         {

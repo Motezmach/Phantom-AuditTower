@@ -121,6 +121,32 @@ def _filter_notes(
     return filtered
 
 
+def get_recon_notes_for_surface_planner() -> list[dict[str, str]]:
+    """Return shared reconnaissance notes for deterministic surface planning.
+
+    This is intentionally a small, read-only bridge between the shared notes
+    store and the coverage planner.  It keeps the planner independent of a
+    particular target or note title while preventing a large recon inventory
+    from being lost when an agent only passes a short note preview.
+    """
+    with _notes_lock:
+        notes: list[dict[str, str]] = []
+        for note in _notes_storage.values():
+            tags = note.get("tags") or []
+            category = str(note.get("category") or "")
+            if category not in {"wiki", "methodology"} or "recon" not in tags:
+                continue
+            content = str(note.get("content") or "").strip()
+            if content:
+                notes.append(
+                    {
+                        "title": str(note.get("title") or ""),
+                        "content": content,
+                    }
+                )
+        return notes
+
+
 def _mark_authorship(
     entry: dict[str, Any], note: dict[str, Any], caller_agent_id: str | None
 ) -> dict[str, Any]:

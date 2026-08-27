@@ -149,6 +149,14 @@ _BROAD_TASK_MARKERS = (
     "all vulnerabilities",
 )
 
+_HTTP_METHOD_RE = re.compile(
+    r"\b(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\b", re.IGNORECASE
+)
+_PATH_TOKEN_RE = re.compile(
+    r"(?:https?://[^\s,;)>\]]+|/[A-Za-z0-9][^\s,;)>\]]+)",
+    re.IGNORECASE,
+)
+
 
 def _clean(value: Any) -> str:
     return " ".join(str(value or "").split()).strip()
@@ -345,6 +353,151 @@ def _record_parameters(record: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(values))
 
 
+def _path_parameters(path: str) -> list[str]:
+    """Extract parameter names from a URL path without interpreting values."""
+    names = re.findall(r"[?&]([A-Za-z0-9_.-]+)(?:=|&|$)", path)
+    for group in re.findall(r"\{([^{}]+)\}", path):
+        names.extend(re.findall(r"[A-Za-z_][A-Za-z0-9_.-]*", group))
+    return list(dict.fromkeys(_clean(name) for name in names if _clean(name)))
+
+
+def _line_parameters(line: str, path: str, path_end: int) -> list[str]:
+    """Extract named body/form fields stated next to a discovered route."""
+    names = _path_parameters(path)
+    parameter_segments: list[str] = []
+    parameter_segments.extend(
+        match.group(1)
+        for match in re.finditer(
+            r"\b(?:params?|parameters?|fields?)\b\s*[:=]?\s*([^;]+)",
+            line,
+            re.IGNORECASE,
+        )
+    )
+
+    tail = line[path_end:].lstrip()
+    if tail.startswith("("):
+        closing = tail.find(")")
+        if closing > 1:
+            content = tail[1:closing]
+            parts = [part.strip().strip("{}") for part in content.split(",")]
+            if len(parts) > 1 and all(
+                re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", part) for part in parts
+            ):
+                parameter_segments.append(",".join(parts))
+
+    for segment in parameter_segments:
+        for part in re.split(r"[,|]", segment):
+            match = re.search(r"\b([A-Za-z_][A-Za-z0-9_.-]*)\b", part)
+            if match:
+                name = match.group(1)
+                if name.casefold() not in {"params", "parameters", "fields", "inputs"}:
+                    names.append(name)
+    return list(dict.fromkeys(_clean(name) for name in names if _clean(name)))
+
+
+def _text_blocks(value: Any) -> list[str]:
+    """Collect text from common recon-note and inventory shapes."""
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, list):
+        blocks: list[str] = []
+        for entry in value:
+            blocks.extend(_text_blocks(entry))
+        return blocks
+    if isinstance(value, dict):
+        blocks: list[str] = []
+        for key in ("content", "body", "text", "summary", "notes", "evidence"):
+            if key in value:
+                blocks.extend(_text_blocks(value[key]))
+        return blocks
+    return []
+
+
+def _endpoint_records_from_text(text_blocks: list[str]) -> list[dict[str, Any]]:
+    """Recover generic endpoint records from recon prose or Markdown notes."""
+    records: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for block in text_blocks:
+        for raw_line in block.splitlines():
+            line = _clean(raw_line)
+            if not line:
+                continue
+            matches = list(_PATH_TOKEN_RE.finditer(line))
+            for match in matches:
+                if match.start() and line[match.start() - 1] == "<":
+                    continue
+                token = match.group(0).rstrip(".,:;`'\"()")
+                if "<" in token:
+                    token = token.split("<", 1)[0]
+                token = token.rstrip(".,:;`'\"()")
+                if token.startswith("//"):
+                    continue
+                if not token or "*" in token:
+                    continue
+                prefix = line[: match.start()]
+                is_bullet = bool(re.match(r"^\s*[-*]\s+", line))
+                has_method = bool(
+                    re.search(
+                        r"(?:^|[\s(:>-])(?:GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s*$",
+                        prefix,
+                        re.I,
+                    )
+                )
+                has_action = bool(
+                    re.search(
+                        r"(?:post|posts|call|calls|action|redirect|redirects|to)\s*$",
+                        prefix,
+                        re.I,
+                    )
+                )
+                if not (is_bullet or has_method or has_action):
+                    continue
+                context = f"{line[max(0, match.start() - 32):match.end() + 32]}"
+                methods = _HTTP_METHOD_RE.findall(context)
+                method = methods[-1].upper() if methods else "GET"
+                key = (method, token.casefold())
+                if key in seen:
+                    continue
+                seen.add(key)
+                parameters = _line_parameters(line, token, match.end())
+                record: dict[str, Any] = {
+                    "path": token,
+                    "method": method,
+                    "notes": line,
+                }
+                if parameters:
+                    record["parameters"] = parameters
+                lower = line.casefold()
+                if token.casefold().startswith(("/api", "http://", "https://")) and (
+                    "/api" in token.casefold() or "json" in lower or "swagger" in lower
+                ):
+                    record["kind"] = "api"
+                elif method in {"POST", "PUT", "PATCH", "DELETE"} or "form" in lower:
+                    record["kind"] = "form"
+                records.append(record)
+    return records
+
+
+def _expand_surface_map(surface_map: dict[str, Any]) -> dict[str, Any]:
+    """Preserve structured recon data and supplement it with shared note text."""
+    expanded = dict(surface_map)
+    existing_observations = _clean_list(surface_map.get("observations"))
+    text_blocks: list[str] = []
+    for key in ("recon_notes", "notes", "inventory", "attack_surface", "observations"):
+        text_blocks.extend(_text_blocks(surface_map.get(key)))
+
+    extracted = _endpoint_records_from_text(text_blocks)
+    if extracted:
+        expanded["endpoints"] = [*expanded.get("endpoints", [])] if isinstance(
+            expanded.get("endpoints"), list
+        ) else []
+        expanded["endpoints"].extend(extracted)
+    if text_blocks:
+        expanded["observations"] = list(dict.fromkeys([*existing_observations, *text_blocks]))
+    return expanded
+
+
 def _record_text(record: dict[str, Any]) -> str:
     values: list[str] = []
     for key in (
@@ -377,11 +530,11 @@ def _surface_path(record: dict[str, Any], base_url: str) -> str:
 def _payload_crafter_needed(*, families: list[str], text: str, parameters: list[str]) -> bool:
     if not parameters:
         return False
-    if not _COMPLEX_PAYLOAD_FAMILIES.intersection(families):
+    family_set = _COMPLEX_PAYLOAD_FAMILIES.intersection(families)
+    if not family_set:
         return False
-    # XSS/SQLi are handled by their discovery lanes on simple pages.  A
-    # crafter is still useful when recon identifies a parser/API/auth context;
-    # server-side and protocol payloads always benefit from the focused lane.
+    # Server-side and protocol inputs benefit from focused mutations as soon
+    # as recon identifies a real parameter or message field.
     server_or_protocol = {
         "ssrf",
         "path_traversal_lfi_rfi",
@@ -392,9 +545,29 @@ def _payload_crafter_needed(*, families: list[str], text: str, parameters: list[
         "websocket_security",
         "webhook_security",
     }
-    if server_or_protocol.intersection(families):
+    if server_or_protocol.intersection(family_set):
         return True
-    return bool(re.search(r"(?:api|json|xml|form|auth|login|parser|html|dom|reflect)", text, re.I))
+    if "api_abuse" in family_set:
+        return bool(
+            re.search(r"(?:api|json|graphql|websocket|webhook|body|header)", text, re.I)
+        )
+    if {"sql_injection", "nosql_injection", "ssti"}.intersection(family_set):
+        return bool(
+            re.search(
+                r"(?:api|json|xml|form|auth|login|parser|input|param|query|body|reflect)",
+                text,
+                re.I,
+            )
+        )
+    if {"xss", "dom_xss"}.intersection(family_set):
+        return bool(
+            re.search(
+                r"(?:html|dom|script|render|search|feedback|browser|sink|reflect)",
+                text,
+                re.I,
+            )
+        )
+    return False
 
 
 def build_surface_coverage_plan(surface_map: dict[str, Any]) -> list[dict[str, Any]]:
@@ -404,6 +577,7 @@ def build_surface_coverage_plan(surface_map: dict[str, Any]) -> list[dict[str, A
     infers a vulnerability. The root agent supplies the structured inventory
     produced by recon, making the planner reusable for any web application.
     """
+    surface_map = _expand_surface_map(surface_map)
     base_url = _clean(surface_map.get("base_url") or surface_map.get("target"))
     records = _endpoint_records(surface_map)
     if not records:
@@ -595,7 +769,7 @@ def build_surface_coverage_plan(surface_map: dict[str, Any]) -> list[dict[str, A
                 record=record,
                 parameters=parameters,
                 requires_payload_crafter=_payload_crafter_needed(
-                    families=server_families, text=text, parameters=parameters or ["surface"]
+                    families=server_families, text=text, parameters=parameters
                 ),
             )
         if client_signal:

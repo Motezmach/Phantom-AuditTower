@@ -91,6 +91,34 @@ def test_surface_planner_creates_concrete_lanes_and_payload_handoff() -> None:
     assert any(item["discovery_lane"] == "error_disclosure" for item in plan)
 
 
+def test_surface_planner_recovers_generic_routes_from_recon_notes() -> None:
+    plan = build_surface_coverage_plan(
+        {
+            "base_url": "http://example.test",
+            "recon_notes": [
+                {
+                    "title": "Endpoint inventory",
+                    "content": (
+                        "- POST /api/login (username, password)\n"
+                        "- /search.jsp?query= - reflects the query into HTML\n"
+                        "- /util/check?url= - server-side URL check candidate\n"
+                        "- POST /api/transfer ({toAccount, fromAccount, transferAmount})"
+                    ),
+                }
+            ],
+        }
+    )
+
+    assert any(item.get("route") == "/api/login" for item in plan)
+    assert any(item.get("parameter") == "username, password" for item in plan)
+    assert any(
+        item.get("route") == "/api/transfer"
+        and item.get("parameter") == "toAccount, fromAccount, transferAmount"
+        for item in plan
+    )
+    assert any(item["requires_payload_crafter"] for item in plan)
+
+
 def test_lane_and_payload_quality_require_matching_handoffs() -> None:
     item = normalize_coverage_item(
         {
