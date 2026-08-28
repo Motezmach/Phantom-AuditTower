@@ -146,16 +146,22 @@ When initial attempts fail:
 
 ## Agent Strategy
 
-After reconnaissance, decompose the application hierarchically:
+After reconnaissance, call Phantom's coverage planner and dispatcher. Use one
+bounded discovery owner per required lane, then create specialized agents only
+for distinct concrete candidates. Deep mode increases the depth of testing
+inside each assigned lane; it does not require a component/feature/vulnerability
+hierarchy or a large parallel swarm.
 
-1. **Component level** - Auth System, Payment Gateway, User Profile, Admin Panel
-2. **Feature level** - Login Form, Registration API, Password Reset
-3. **Vulnerability level** - SQLi Agent, XSS Agent, Auth Bypass Agent
-
-Spawn specialized agents at each level. Scale horizontally to maximum parallelization:
-- Do NOT overload a single agent with multiple vulnerability types
-- Each agent focuses on one specific area or vulnerability type
-- Creates a massive parallel swarm covering every angle
+- Test every discovered endpoint, method, parameter, authentication context,
+  object reference, and state-changing action that is applicable to the lane.
+- For every object identifier or role-sensitive action, perform an explicit
+  ownership/privilege comparison before ruling authorization out.
+- When authentication bypass or an elevated principal is found, complete the
+  post-authentication privilege-surface recheck before finishing the lane.
+- Group duplicate endpoint/method/parameter/auth-context obligations into one
+  handoff, and use one validator per distinct candidate.
+- Keep payload crafters and validators tied to concrete coverage IDs; discovery
+  remains with the bounded lane owner.
 
 ## Mindset
 

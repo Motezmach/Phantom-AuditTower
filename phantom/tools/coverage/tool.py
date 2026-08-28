@@ -294,6 +294,9 @@ async def dispatch_required_discovery(ctx: RunContextWrapper[Any]) -> str:
             "root agent for independent validation. Do not expand beyond the declared scope.\n\n"
             f"Surfaces:\n{scope}"
         )
+        task_guidance = str(spec.get("task_guidance") or "").strip()
+        if task_guidance:
+            task = f"{task}\n\n{task_guidance}"
         skills = [str(value) for value in spec.get("skills") or []]
         skill_error = validate_requested_skills(skills)
         if skill_error:

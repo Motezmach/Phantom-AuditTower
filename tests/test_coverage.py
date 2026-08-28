@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from phantom.report.coverage import (
+    DISCOVERY_LANE_SPECS,
     build_surface_coverage_plan,
     coverage_quality_errors,
     discovery_lane_quality_errors,
@@ -117,6 +118,125 @@ def test_surface_planner_recovers_generic_routes_from_recon_notes() -> None:
         for item in plan
     )
     assert any(item["requires_payload_crafter"] for item in plan)
+
+
+def test_unscoped_parameters_do_not_spread_across_multiple_routes() -> None:
+    plan = build_surface_coverage_plan(
+        {
+            "parameters": ["query", "content", "HostName"],
+            "endpoints": [
+                {"path": "/index.jsp", "method": "GET"},
+                {"path": "/style.css", "method": "GET"},
+            ],
+        }
+    )
+
+    assert not any(
+        item.get("parameter") == "query, content, HostName" for item in plan
+    )
+    assert not any(item.get("requires_payload_crafter") for item in plan)
+
+
+def test_unscoped_parameters_remain_a_single_route_fallback() -> None:
+    plan = build_surface_coverage_plan(
+        {
+            "parameters": ["query", "content"],
+            "endpoints": [{"path": "/search.jsp", "method": "GET"}],
+        }
+    )
+
+    assert any(item.get("parameter") == "query, content" for item in plan)
+
+
+def test_authorization_lane_requires_post_auth_privilege_recheck() -> None:
+    spec = DISCOVERY_LANE_SPECS["authorization"]
+    guidance = spec["task_guidance"]
+
+    assert "post-authentication recheck" in guidance
+    assert "parent 404" in guidance
+    assert "ordinary low-privilege principal" in guidance
+
+
+def test_api_state_changes_and_object_references_get_authorization_coverage() -> None:
+    plan = build_surface_coverage_plan(
+        {
+            "base_url": "https://example.test",
+            "endpoints": [
+                {
+                    "path": "/v1/submit",
+                    "method": "POST",
+                    "kind": "api",
+                    "parameters": ["payload"],
+                },
+                {
+                    "path": "/v1/widgets/{id}",
+                    "method": "GET",
+                    "kind": "api",
+                },
+            ],
+        }
+    )
+
+    assert any(
+        item.get("route") == "/v1/submit"
+        and item.get("discovery_lane") == "authorization"
+        for item in plan
+    )
+    assert any(
+        item.get("route") == "/v1/submit"
+        and item.get("discovery_lane") == "state_change"
+        for item in plan
+    )
+    assert any(
+        item.get("route") == "/v1/widgets/{id}"
+        and item.get("discovery_lane") == "authorization"
+        for item in plan
+    )
+
+
+def test_text_inventory_normalizes_compact_api_method_notation() -> None:
+    plan = build_surface_coverage_plan(
+        {
+            "base_url": "https://example.test",
+            "recon_notes": [
+                {
+                    "title": "API inventory",
+                    "content": (
+                        "- /api/login(Get/Post) (username, password)\n"
+                        "- /api/transfer(Post) (fromAccount, toAccount, amount)"
+                    ),
+                }
+            ],
+        }
+    )
+
+    assert any(item.get("route") == "/api/login" for item in plan)
+    assert any(
+        item.get("route") == "/api/transfer"
+        and item.get("discovery_lane") == "authorization"
+        for item in plan
+    )
+
+
+def test_text_inventory_ignores_explicitly_unavailable_paths() -> None:
+    plan = build_surface_coverage_plan(
+        {
+            "base_url": "https://example.test",
+            "recon_notes": [
+                {
+                    "content": (
+                        "**Ruled out:**\n"
+                        "- /POST (404 artifact), /from (404), /api/login (200)"
+                    )
+                }
+            ],
+        }
+    )
+
+    routes = {item.get("route") for item in plan}
+    assert "/POST" not in routes
+    assert "/from" not in routes
+    assert "/api/login" in routes
 
 
 def test_lane_and_payload_quality_require_matching_handoffs() -> None:

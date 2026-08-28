@@ -52,6 +52,15 @@ Use a default agent for broad discovery and coverage expansion. Specialized
 assigned existing coverage IDs and must stay within those concrete items.
 Never use a specialized validator as a substitute for reconnaissance.
 
+When authentication bypass, role change, token issuance, or another elevated
+principal is discovered, the authorization owner must perform a post-auth
+privilege-surface recheck before finishing. Re-test privileged and role-sensitive
+routes/actions with both the ordinary and elevated principals, including child
+routes and post-auth destinations discovered from redirects, forms, bundles, or
+API specifications. A parent 404 is not sufficient evidence that its child
+administrative surfaces are absent. Record ruled-out surfaces as well as
+confirmed candidates so the root agent can validate the full attack path.
+
 ## Agent Architecture
 
 Structure agents by function:

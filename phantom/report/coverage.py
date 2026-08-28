@@ -37,6 +37,18 @@ DISCOVERY_LANE_SPECS: dict[str, dict[str, Any]] = {
             "vulnerabilities/mass_assignment",
         ],
         "families": ["idor", "broken_function_level_authorization", "privilege_escalation"],
+        "task_guidance": (
+            "Mandatory post-authentication recheck: treat any successful auth bypass, "
+            "role change, token issuance, or elevated principal as a trigger. Before "
+            "finishing this lane, read the current coverage ledger and shared recon/agent "
+            "notes, then re-test every privileged or role-sensitive surface discovered "
+            "from routes, redirects, forms, client bundles, and API specifications with "
+            "both an ordinary low-privilege principal and the bypassed/elevated principal. "
+            "Do not infer that a feature is absent from a parent 404; inspect discovered "
+            "child routes and post-auth destinations. Record each tested surface and its "
+            "evidence, including ruled-out results, and report new concrete candidates to "
+            "the root agent for independent validation."
+        ),
     },
     "injection": {
         "name": "Web Input & Injection Discovery",
@@ -152,8 +164,18 @@ _BROAD_TASK_MARKERS = (
 _HTTP_METHOD_RE = re.compile(
     r"\b(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\b", re.IGNORECASE
 )
+_HTTP_METHOD_SUFFIX_RE = re.compile(
+    r"\((?:GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)"
+    r"(?:\s*/\s*(?:GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD))*\)?$",
+    re.IGNORECASE,
+)
 _PATH_TOKEN_RE = re.compile(
     r"(?:https?://[^\s,;)>\]]+|/[A-Za-z0-9][^\s,;)>\]]+)",
+    re.IGNORECASE,
+)
+_UNAVAILABLE_PATH_SUFFIX_RE = re.compile(
+    r"^\s*(?:[(:,-]\s*)?(?:http\s*)?404\b|"
+    r"^\s*(?:[(:,-]\s*)?(?:not\s+found|does\s+not\s+exist|unavailable)\b",
     re.IGNORECASE,
 )
 
@@ -340,9 +362,15 @@ def _endpoint_records(surface_map: dict[str, Any]) -> list[dict[str, Any]]:
         for record in _records(surface_map.get(key)):
             path = _first(record, "path", "url", "endpoint", "route", "action", "location")
             if path or key in {"forms", "inputs"}:
-                if global_parameters and not _record_parameters(record):
-                    record = {**record, "parameters": global_parameters}
                 records.append({**record, "_source": key})
+
+    # A top-level parameter list is ambiguous when recon discovered multiple
+    # routes. Applying it to every route turns unrelated static pages into
+    # payload-capable surfaces and creates a payload-crafter fan-out storm.
+    # Preserve the useful fallback only when there is exactly one discovered
+    # record; multi-route recon must attach parameters to the owning record.
+    if len(records) == 1 and global_parameters and not _record_parameters(records[0]):
+        records[0] = {**records[0], "parameters": global_parameters}
     return records
 
 
@@ -351,6 +379,35 @@ def _record_parameters(record: dict[str, Any]) -> list[str]:
     for key in ("parameters", "params", "inputs", "fields", "query_parameters", "body_parameters"):
         values.extend(_clean_list(record.get(key)))
     return list(dict.fromkeys(values))
+
+
+def _has_object_reference(parameters: list[str]) -> bool:
+    """Recognize generic object/owner identifiers that need an authz check."""
+    normalized = {
+        re.sub(r"[^a-z0-9]", "", parameter.casefold()) for parameter in parameters
+    }
+    known_references = {
+        "id",
+        "uuid",
+        "account",
+        "accountid",
+        "accountno",
+        "fromaccount",
+        "toaccount",
+        "userid",
+        "username",
+        "owner",
+        "ownerid",
+        "tenant",
+        "tenantid",
+        "objectid",
+        "recordid",
+        "orderid",
+        "invoiceid",
+        "paymentid",
+        "transactionid",
+    }
+    return bool(normalized.intersection(known_references))
 
 
 def _path_parameters(path: str) -> list[str]:
@@ -428,6 +485,12 @@ def _endpoint_records_from_text(text_blocks: list[str]) -> list[dict[str, Any]]:
                 if match.start() and line[match.start() - 1] == "<":
                     continue
                 token = match.group(0).rstrip(".,:;`'\"()")
+                # Recon notes often compress an API route and its methods as
+                # ``/api/login(Get/Post)`` or ``/api/transfer(Post)``. Keep
+                # the route while letting the surrounding context provide the
+                # method. This is syntax cleanup, not target knowledge.
+                token = _HTTP_METHOD_SUFFIX_RE.sub("", token)
+                token = token.rstrip(".,:;`'\"()")
                 if "<" in token:
                     token = token.split("<", 1)[0]
                 token = token.rstrip(".,:;`'\"()")
@@ -435,8 +498,19 @@ def _endpoint_records_from_text(text_blocks: list[str]) -> list[dict[str, Any]]:
                     continue
                 if not token or "*" in token:
                     continue
+                parameter_end = match.end()
+                while parameter_end < len(line) and line[parameter_end] in ")]":
+                    parameter_end += 1
+                suffix = line[parameter_end:]
+                next_path = _PATH_TOKEN_RE.search(suffix)
+                nearby_suffix = suffix[: next_path.start() if next_path else 80]
+                if _UNAVAILABLE_PATH_SUFFIX_RE.search(nearby_suffix):
+                    # Recon notes often retain explicit negative observations
+                    # such as ``/missing (404)`` or ``/POST (404 artifact)``.
+                    # Do not turn those observations into test obligations.
+                    continue
                 prefix = line[: match.start()]
-                is_bullet = bool(re.match(r"^\s*[-*]\s+", line))
+                is_bullet = bool(re.match(r"^\s*(?:[-*]|\d+[.)])\s+", line))
                 has_method = bool(
                     re.search(
                         r"(?:^|[\s(:>-])(?:GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s*$",
@@ -451,7 +525,15 @@ def _endpoint_records_from_text(text_blocks: list[str]) -> list[dict[str, Any]]:
                         re.I,
                     )
                 )
-                if not (is_bullet or has_method or has_action):
+                has_inventory_context = bool(
+                    re.search(
+                        r"(?:api|endpoint|route|swagger|openapi|form|method|path|"
+                        r"parameter|login|logout|transfer|admin)",
+                        line,
+                        re.I,
+                    )
+                )
+                if not (is_bullet or has_method or has_action or has_inventory_context):
                     continue
                 context = f"{line[max(0, match.start() - 32):match.end() + 32]}"
                 methods = _HTTP_METHOD_RE.findall(context)
@@ -460,7 +542,7 @@ def _endpoint_records_from_text(text_blocks: list[str]) -> list[dict[str, Any]]:
                 if key in seen:
                     continue
                 seen.add(key)
-                parameters = _line_parameters(line, token, match.end())
+                parameters = _line_parameters(line, token, parameter_end)
                 record: dict[str, Any] = {
                     "path": token,
                     "method": method,
@@ -640,11 +722,13 @@ def build_surface_coverage_plan(surface_map: dict[str, Any]) -> list[dict[str, A
     for record in records:
         path = _surface_path(record, base_url)
         method = (_first(record, "method", "http_method") or "GET").upper()
-        parameters = _record_parameters(record)
+        route = _first(record, "path", "url", "endpoint", "route", "action", "location") or "/"
+        parameters = list(
+            dict.fromkeys([*_record_parameters(record), *_path_parameters(route)])
+        )
         text = _record_text(record)
         lower = text.casefold()
         kind = (_first(record, "kind", "type", "_source") or "").casefold()
-        route = _first(record, "path", "url", "endpoint", "route", "action", "location") or "/"
         auth_signal = bool(
             re.search(
                 r"(?:login|signin|logout|register|signup|auth|oauth|token|session|"
@@ -657,18 +741,22 @@ def build_surface_coverage_plan(surface_map: dict[str, Any]) -> list[dict[str, A
             or route.casefold().startswith(("/api", "/graphql"))
             or "application/json" in lower
         )
-        authorization_signal = bool(
-            re.search(
-                r"(?:account|user|admin|role|tenant|object|order|transfer|payment|id=|uuid|owner)",
-                lower,
-            )
-        )
         state_signal = method in {"POST", "PUT", "PATCH", "DELETE"} or bool(
             re.search(
                 r"(?:transfer|update|delete|create|upload|feedback|change|reset|pay|"
                 r"checkout|admin|settings|logout)",
                 lower,
             )
+        )
+        authorization_signal = bool(
+            re.search(
+                r"(?:account|user|admin|role|tenant|object|order|transfer|payment|id=|uuid|owner)",
+                lower,
+            )
+            or _has_object_reference(parameters)
+            # API state changes need an explicit role/ownership check even
+            # when the route name does not expose a domain noun.
+            or (api_signal and state_signal)
         )
         server_signal = bool(
             re.search(
