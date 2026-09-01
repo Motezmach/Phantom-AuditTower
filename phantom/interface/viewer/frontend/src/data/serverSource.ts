@@ -49,6 +49,73 @@ export interface LoadedRun {
   transcript: Transcript;
 }
 
+export interface DashboardInfo {
+  mode: "dashboard" | "viewer";
+  llm: {
+    configured: boolean;
+    model: string | null;
+    endpoint: "local" | "provider";
+  };
+  target_count: number;
+}
+
+export interface RegisteredTarget {
+  id: string;
+  name: string;
+  base_url: string;
+  scope_hosts: string[];
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ScanMode = "quick" | "deep";
+export type ScanJobStatus = "preparing" | "running" | "completed" | "failed" | "stopped";
+
+export interface ScanJob {
+  id: string;
+  target_id: string;
+  target_name: string;
+  target_url: string;
+  scan_mode: ScanMode;
+  status: ScanJobStatus;
+  run_name: string | null;
+  created_at: string;
+  started_at: string | null;
+  ended_at: string | null;
+  error: string | null;
+  stop_requested: boolean;
+}
+
+export interface ScansPayload {
+  active: ScanJob | null;
+  jobs: ScanJob[];
+}
+
+export type ReplayJobStatus =
+  | "preparing"
+  | "running"
+  | "confirmed"
+  | "not_reproduced"
+  | "inconclusive"
+  | "blocked"
+  | "failed";
+
+export interface ReplayJob {
+  id: string;
+  run_name: string;
+  finding_id: string;
+  status: ReplayJobStatus;
+  created_at: string;
+  started_at: string | null;
+  ended_at: string | null;
+  phase: string;
+  output: string[];
+  script: string;
+  result: Record<string, unknown> | null;
+  error: string | null;
+}
+
 async function getJson(path: string): Promise<unknown> {
   const res = await fetch(path, { cache: "no-store" });
   if (!res.ok) throw new Error(`${path} responded ${res.status}`);
@@ -152,6 +219,162 @@ async function postJson(
   return { ok: res.ok, status: res.status, data };
 }
 
+export async function fetchDashboardInfo(): Promise<DashboardInfo> {
+  const obj = (await getJson("/api/dashboard")) as Partial<DashboardInfo>;
+  const rawLlm = obj?.llm as Partial<DashboardInfo["llm"]> | undefined;
+  return {
+    mode: obj?.mode === "dashboard" ? "dashboard" : "viewer",
+    llm: {
+      configured: rawLlm?.configured === true,
+      model: typeof rawLlm?.model === "string" ? rawLlm.model : null,
+      endpoint: rawLlm?.endpoint === "local" ? "local" : "provider",
+    },
+    target_count: typeof obj?.target_count === "number" ? obj.target_count : 0,
+  };
+}
+
+export async function fetchTargets(): Promise<RegisteredTarget[]> {
+  const obj = (await getJson("/api/targets")) as { targets?: unknown };
+  return Array.isArray(obj?.targets) ? (obj.targets as RegisteredTarget[]) : [];
+}
+
+export type CreateTargetResult =
+  | { ok: true; target: RegisteredTarget }
+  | { ok: false; message: string };
+
+export async function createTarget(name: string, baseUrl: string): Promise<CreateTargetResult> {
+  const { ok, data } = await postJson("/api/targets", { name, base_url: baseUrl });
+  if (ok && data.target && typeof data.target === "object") {
+    return { ok: true, target: data.target as RegisteredTarget };
+  }
+  return {
+    ok: false,
+    message: typeof data.message === "string" ? data.message : "Could not register this target.",
+  };
+}
+
+export async function fetchScans(): Promise<ScansPayload> {
+  const obj = (await getJson("/api/scans")) as Partial<ScansPayload>;
+  const active = obj?.active && typeof obj.active === "object" ? (obj.active as ScanJob) : null;
+  return {
+    active,
+    jobs: Array.isArray(obj?.jobs) ? (obj.jobs as ScanJob[]) : [],
+  };
+}
+
+export type StartScanResult =
+  | { ok: true; job: ScanJob }
+  | { ok: false; message: string };
+
+export async function startScan(
+  targetId: string,
+  scanMode: ScanMode,
+): Promise<StartScanResult> {
+  const { ok, data } = await postJson("/api/scans", {
+    target_id: targetId,
+    scan_mode: scanMode,
+  });
+  if (ok && data.job && typeof data.job === "object") {
+    return { ok: true, job: data.job as ScanJob };
+  }
+  return {
+    ok: false,
+    message: typeof data.message === "string" ? data.message : "Could not start this scan.",
+  };
+}
+
+/** POST /api/scans/stop. Requests a graceful stop for a dashboard scan. */
+export async function stopScan(jobId: string): Promise<StartScanResult> {
+  const { ok, data } = await postJson("/api/scans/stop", { job_id: jobId });
+  if (ok && data.job && typeof data.job === "object") {
+    return { ok: true, job: data.job as ScanJob };
+  }
+  return {
+    ok: false,
+    message: typeof data.message === "string" ? data.message : "Could not stop this scan.",
+  };
+}
+
+export type StartReplayResult =
+  | { ok: true; job: ReplayJob }
+  | { ok: false; message: string; code?: string };
+
+export async function startReplay(
+  runName: string,
+  findingId: string,
+  confirmed = false,
+): Promise<StartReplayResult> {
+  const { ok, data } = await postJson("/api/replays", {
+    run: runName,
+    finding_id: findingId,
+    confirmed,
+  });
+  if (ok && data.job && typeof data.job === "object") {
+    return { ok: true, job: data.job as ReplayJob };
+  }
+  return {
+    ok: false,
+    code: typeof data.error === "string" ? data.error : undefined,
+    message:
+      typeof data.message === "string"
+        ? data.message
+        : "Could not start the finding replay.",
+  };
+}
+
+export async function fetchReplay(
+  replayId: string,
+  runName: string,
+): Promise<ReplayJob> {
+  return (await getJson(
+    `/api/replays/${encodeURIComponent(replayId)}?run=${encodeURIComponent(runName)}`,
+  )) as ReplayJob;
+}
+
+export interface AuthStatus {
+  verified: boolean;
+  email: string | null;
+}
+
+export async function fetchAuthStatus(): Promise<AuthStatus> {
+  const obj = (await getJson("/api/auth/status")) as Partial<AuthStatus>;
+  return {
+    verified: obj?.verified === true,
+    email: typeof obj?.email === "string" ? obj.email : null,
+  };
+}
+
+export type AuthActionResult = { ok: true } | { ok: false; error: string };
+
+export async function otpStart(email: string): Promise<AuthActionResult> {
+  const { ok, data } = await postJson("/api/auth/otp/start", { email });
+  if (ok) return { ok: true };
+  return { ok: false, error: String(data.error ?? "unavailable") };
+}
+
+export async function otpVerify(
+  email: string,
+  code: string
+): Promise<{ verified: boolean; email: string }> {
+  const { ok, data } = await postJson("/api/auth/otp/verify", { email, code });
+  return {
+    verified: ok && data.verified === true,
+    email: typeof data.email === "string" ? data.email : email,
+  };
+}
+
+export type SendReportResult =
+  | { ok: true; password: string; filename: string }
+  | { ok: false; error: string };
+
+export async function sendReport(runName: string | null): Promise<SendReportResult> {
+  const { ok, data } = await postJson("/api/report/send", { run: runName });
+  if (ok && typeof data.password === "string" && typeof data.filename === "string") {
+    return { ok: true, password: data.password, filename: data.filename };
+  }
+  return { ok: false, error: String(data.error ?? "unavailable") };
+}
+
 export async function fetchRuns(): Promise<RunsPayload> {
   const obj = (await getJson("/api/runs")) as Partial<RunsPayload>;
   return {
@@ -163,14 +386,15 @@ export async function fetchRuns(): Promise<RunsPayload> {
 
 export interface Capabilities {
   can_steer: boolean;
+  can_stop: boolean;
 }
 
 export type SteerResult = { ok: true } | { ok: false; error: string };
 
-/** GET /api/capabilities. can_steer is true only inside a live in-TUI scan. */
+/** GET /api/capabilities. */
 export async function fetchCapabilities(): Promise<Capabilities> {
   const obj = (await getJson("/api/capabilities")) as Partial<Capabilities>;
-  return { can_steer: obj?.can_steer === true };
+  return { can_steer: obj?.can_steer === true, can_stop: obj?.can_stop === true };
 }
 
 /** POST /api/agents/steer. Sends a steering instruction to a running agent. */

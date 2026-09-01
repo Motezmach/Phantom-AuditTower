@@ -28,7 +28,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 
-from phantom.core.paths import run_record_path
+from phantom.config import load_settings
+from phantom.core.paths import run_record_path, runs_base_dir
+from phantom.core.replay import ReplayManager, ReplayValidationError, normalize_replay_spec
+from phantom.core.scans import DashboardScanManager, ScanStartError
+from phantom.core.targets import TargetStore, TargetValidationError
+from phantom.interface.viewer import auth
 from phantom.interface.viewer.transcript import (
     build_run_state,
     primary_target,
@@ -93,12 +98,17 @@ def run_list_entry(run_dir: Path) -> dict[str, Any]:
 
 def build_runs_payload(base_dir: Path, *, verified: bool) -> dict[str, Any]:
     """Return the local run history for the authenticated viewer session."""
+    _ = verified  # Kept in the API for callers that already perform the gate.
     run_dirs = _iter_run_dirs(base_dir)
     count = len(run_dirs)
     return {"locked": False, "count": count, "runs": [run_list_entry(d) for d in run_dirs]}
 
 
-def resolve_run_dir(base_dir: Path, run_param: str | None, default_run_dir: Path) -> Path | None:
+def resolve_run_dir(
+    base_dir: Path,
+    run_param: str | None,
+    default_run_dir: Path | None,
+) -> Path | None:
     """Resolve a ``?run=`` value to a real run directory under ``base_dir``.
 
     Returns ``default_run_dir`` when no run is requested. Rejects traversal and
@@ -124,18 +134,27 @@ SESSION_COOKIE_PREFIX = "phantom_viewer_session"
 class _ViewerState:
     def __init__(
         self,
-        run_dir: Path,
+        run_dir: Path | None,
         assets_dir: Path,
         steer_handler: Callable[[str, str], bool] | None = None,
+        base_dir: Path | None = None,
     ) -> None:
         self.run_dir = run_dir
         self.assets_dir = assets_dir
         # The phantom_runs directory that holds the launched run; used to
         # enumerate and resolve other runs for the history list.
-        self.base_dir = run_dir.parent
-        # Set only when the viewer runs inside a live scan process (the TUI
-        # launcher), which can deliver a message to a running agent. Absent for
-        # standalone ``phantom view`` / finished runs, so steering is unavailable.
+        self.base_dir = base_dir or (run_dir.parent if run_dir is not None else runs_base_dir())
+        self.dashboard_mode = run_dir is None
+        self.target_store = TargetStore()
+        self.scan_manager = (
+            DashboardScanManager(target_store=self.target_store) if self.dashboard_mode else None
+        )
+        # Replay jobs are deterministic, sandbox-backed requests started from
+        # an issue detail page. They never enter the scan coordinator or call
+        # an LLM.
+        self.replay_manager = ReplayManager()
+        # Set when the viewer runs inside a live TUI scan. Dashboard scans use
+        # the manager below as their equivalent coordinator-backed bridge.
         self.steer_handler = steer_handler
         # Unguessable per-process capability. It is minted here, printed/opened
         # for the operator who started the server (see ``authorized_url``), and
@@ -200,6 +219,26 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                     self._handle_feedback()
                 elif path == "/api/agents/steer":
                     self._handle_steer()
+                elif path == "/api/targets":
+                    if not self._has_session():
+                        self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                        return
+                    self._handle_create_target()
+                elif path == "/api/scans":
+                    if not self._has_session():
+                        self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                        return
+                    self._handle_start_scan()
+                elif path == "/api/scans/stop":
+                    if not self._has_session():
+                        self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                        return
+                    self._handle_stop_scan()
+                elif path == "/api/replays":
+                    if not self._has_session():
+                        self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                        return
+                    self._handle_start_replay()
                 else:
                     self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown endpoint"})
             except BrokenPipeError:
@@ -249,7 +288,9 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
             self.send_response(HTTPStatus.NO_CONTENT)
             self.end_headers()
 
-        def _handle_api(self, path: str, query: dict[str, list[str]]) -> None:
+        def _handle_api(  # noqa: PLR0911, PLR0915
+            self, path: str, query: dict[str, list[str]]
+        ) -> None:
             # The cross-run history list (/api/runs) unlocks its entries only for
             # a caller that holds this process's session capability, so merely
             # reaching an exposed --host port never leaks the run list.
@@ -261,9 +302,23 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(HTTPStatus.OK, payload)
                 return
             if path == "/api/capabilities":
-                # Steering is only possible when the viewer shares a live scan's
-                # coordinator + event loop (the TUI launcher wires a handler).
-                self._send_json(HTTPStatus.OK, {"can_steer": state.steer_handler is not None})
+                # Steering is possible when the viewer shares a live scan's
+                # coordinator + event loop. The TUI supplies a handler; the
+                # dashboard owns the equivalent bridge through its scan manager.
+                self._send_json(
+                    HTTPStatus.OK,
+                    {
+                        "can_steer": state.steer_handler is not None
+                        or (state.dashboard_mode and state.scan_manager is not None),
+                        "can_stop": state.dashboard_mode and state.scan_manager is not None,
+                    },
+                )
+                return
+            if path == "/api/dashboard":
+                if not self._has_session():
+                    self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                    return
+                self._send_json(HTTPStatus.OK, build_dashboard_payload(state))
                 return
             if path == "/api/auth/status" and _legacy_relay_enabled():
                 self._handle_auth_status()
@@ -272,11 +327,49 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "legacy endpoint disabled"})
                 return
 
+            if path == "/api/targets":
+                if not self._has_session():
+                    self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                    return
+                try:
+                    targets = [target.as_dict() for target in state.target_store.list()]
+                except TargetValidationError as exc:
+                    self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": exc.code})
+                    return
+                self._send_json(HTTPStatus.OK, {"targets": targets})
+                return
+
+            if path == "/api/scans":
+                if not self._has_session():
+                    self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                    return
+                if state.scan_manager is None:
+                    self._send_json(HTTPStatus.NOT_FOUND, {"error": "dashboard_only"})
+                    return
+                try:
+                    self._send_json(HTTPStatus.OK, state.scan_manager.list_payload())
+                except ScanStartError as exc:
+                    self._send_json(
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        {"error": exc.code, "message": str(exc)},
+                    )
+                return
+
             # All remaining GET endpoints expose run metadata or scan output.
             # Require the capability even for the run used to launch the viewer;
             # reachability of an exposed --host port must not grant data access.
             if not self._has_session():
                 self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
+
+            if path.startswith("/api/replays/"):
+                replay_id = unquote(path.removeprefix("/api/replays/")).strip("/")
+                job = state.replay_manager.get(replay_id)
+                requested_run = (query.get("run") or [None])[0]
+                if job is None or (requested_run and requested_run != job.run_name):
+                    self._send_json(HTTPStatus.NOT_FOUND, {"error": "replay_not_found"})
+                    return
+                self._send_json(HTTPStatus.OK, job.as_dict())
                 return
 
             run_values = query.get("run")
@@ -313,6 +406,120 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(HTTPStatus.OK, build_run_state(run_dir))
             else:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown endpoint"})
+
+        def _handle_create_target(self) -> None:
+            if not state.dashboard_mode:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "dashboard_only"})
+                return
+            body = self._read_body()
+            try:
+                target = state.target_store.create(
+                    name=body.get("name"),
+                    base_url=body.get("base_url"),
+                )
+            except TargetValidationError as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": exc.code, "message": str(exc)})
+                return
+            self._send_json(HTTPStatus.CREATED, {"target": target.as_dict()})
+
+        def _handle_start_scan(self) -> None:
+            if state.scan_manager is None or not state.dashboard_mode:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "dashboard_only"})
+                return
+            body = self._read_body()
+            try:
+                job = state.scan_manager.start(
+                    target_id=body.get("target_id"),
+                    scan_mode=body.get("scan_mode"),
+                )
+            except ScanStartError as exc:
+                status = (
+                    HTTPStatus.CONFLICT
+                    if exc.code == "scan_in_progress"
+                    else HTTPStatus.BAD_REQUEST
+                )
+                self._send_json(status, {"error": exc.code, "message": str(exc)})
+                return
+            self._send_json(HTTPStatus.ACCEPTED, {"job": job.as_dict()})
+
+        def _handle_stop_scan(self) -> None:
+            if state.scan_manager is None or not state.dashboard_mode:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "dashboard_only"})
+                return
+            body = self._read_body()
+            try:
+                job = state.scan_manager.stop(body.get("job_id"))
+            except ScanStartError as exc:
+                status = (
+                    HTTPStatus.CONFLICT
+                    if exc.code in {"scan_not_running", "scan_in_progress"}
+                    else HTTPStatus.BAD_REQUEST
+                )
+                self._send_json(status, {"error": exc.code, "message": str(exc)})
+                return
+            self._send_json(HTTPStatus.ACCEPTED, {"job": job.as_dict()})
+
+        def _handle_start_replay(self) -> None:  # noqa: PLR0911
+            body = self._read_body()
+            run_param = body.get("run")
+            finding_id = body.get("finding_id")
+            if not isinstance(finding_id, str) or not finding_id.strip():
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "invalid_finding_id", "message": "A finding id is required."},
+                )
+                return
+            run_dir = resolve_run_dir(state.base_dir, run_param, state.run_dir)
+            if run_dir is None:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown_run"})
+                return
+            findings = read_vulnerabilities(run_dir)
+            finding = next(
+                (item for item in findings if str(item.get("id") or "") == finding_id.strip()),
+                None,
+            )
+            if finding is None:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "finding_not_found"})
+                return
+            raw_spec = finding.get("replay_spec")
+            if raw_spec is None:
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "error": "replay_unavailable",
+                        "message": "This finding has no structured replay recipe.",
+                    },
+                )
+                return
+            normalized, errors = normalize_replay_spec(
+                raw_spec,
+                finding_target=str(finding.get("target") or "") or None,
+            )
+            if normalized is None or errors:
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "error": "invalid_replay_spec",
+                        "message": "; ".join(errors) or "The stored replay recipe is invalid.",
+                    },
+                )
+                return
+            try:
+                job = state.replay_manager.start(
+                    run_dir=run_dir,
+                    finding_id=finding_id.strip(),
+                    spec=normalized,
+                    confirmed=body.get("confirmed") is True,
+                )
+            except ReplayValidationError as exc:
+                status = (
+                    HTTPStatus.CONFLICT
+                    if exc.code == "replay_confirmation_required"
+                    else HTTPStatus.BAD_REQUEST
+                )
+                self._send_json(status, {"error": exc.code, "message": str(exc)})
+                return
+            self._send_json(HTTPStatus.ACCEPTED, {"job": job.as_dict()})
 
         def _handle_auth_status(self) -> None:
             from phantom.interface.viewer import auth
@@ -484,11 +691,14 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
             ):
                 self._send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_message"})
                 return
-            if state.steer_handler is None:
+            handler = state.steer_handler
+            if handler is None and state.dashboard_mode and state.scan_manager is not None:
+                handler = state.scan_manager.steer_agent
+            if handler is None:
                 # Standalone / finished-run viewing has no live scan to steer.
                 self._send_json(HTTPStatus.FORBIDDEN, {"error": "steering_unavailable"})
                 return
-            delivered = state.steer_handler(agent_id, message)
+            delivered = handler(agent_id, message)
             if delivered:
                 self._send_json(HTTPStatus.OK, {"ok": True})
             else:
@@ -588,6 +798,33 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
     return ViewerHandler
 
 
+def build_dashboard_payload(state: _ViewerState) -> dict[str, Any]:
+    """Return safe, non-secret status for the persistent dashboard shell."""
+    try:
+        settings = load_settings()
+        model = (settings.llm.model or "").strip()
+        api_base = (settings.llm.api_base or "").strip()
+    except Exception:  # noqa: BLE001 - the dashboard must still render if config is malformed
+        logger.debug("could not resolve LLM status for dashboard", exc_info=True)
+        model = ""
+        api_base = ""
+
+    try:
+        target_count = len(state.target_store.list())
+    except TargetValidationError:
+        target_count = 0
+
+    return {
+        "mode": "dashboard" if state.dashboard_mode else "viewer",
+        "llm": {
+            "configured": bool(model),
+            "model": model or None,
+            "endpoint": "local" if api_base or model.lower().startswith("ollama/") else "provider",
+        },
+        "target_count": target_count,
+    }
+
+
 def authorized_url(base_url: str, token: str) -> str:
     """URL that bootstraps the viewer session for the operator.
 
@@ -600,7 +837,7 @@ def authorized_url(base_url: str, token: str) -> str:
 
 
 def serve(
-    run_dir: Path,
+    run_dir: Path | None = None,
     *,
     host: str = "127.0.0.1",
     port: int = 0,
@@ -616,9 +853,9 @@ def serve(
     use, falls back to an ephemeral port. Reused by both the ``phantom view``
     command and the in-TUI launcher; callers own the server's lifetime.
 
-    ``steer_handler`` is supplied only by the in-TUI launcher, which runs inside
-    the live scan process and can forward a message to a running agent. Left
-    ``None`` (standalone ``phantom view``), steering is reported unavailable.
+    ``steer_handler`` is supplied by the in-TUI launcher. Persistent dashboard
+    scans leave it ``None`` and use their dashboard scan manager for the same
+    live steering bridge; standalone finished-run viewers remain read-only.
     """
     assets_dir = bundle_dir()
     state = _ViewerState(run_dir=run_dir, assets_dir=assets_dir, steer_handler=steer_handler)
@@ -653,4 +890,10 @@ def _open_browser(url: str) -> None:
         logger.debug("could not open browser for %s", url, exc_info=True)
 
 
-__all__ = ["authorized_url", "bundle_dir", "bundle_is_built", "serve"]
+__all__ = [
+    "authorized_url",
+    "build_dashboard_payload",
+    "bundle_dir",
+    "bundle_is_built",
+    "serve",
+]

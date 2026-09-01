@@ -13,7 +13,8 @@ from urllib.parse import urlsplit
 import pytest
 
 from phantom.core.paths import latest_run_dir, runs_base_dir
-from phantom.interface.viewer.cli import run_view
+from phantom.core.replay import ReplayJob
+from phantom.interface.viewer.cli import run_serve, run_view
 from phantom.interface.viewer.server import serve
 from phantom.interface.viewer.transcript import (
     build_run_state,
@@ -70,6 +71,19 @@ def test_view_cli_help_includes_host(capsys: pytest.CaptureFixture[str]) -> None
     help_text = capsys.readouterr().out
     assert "--host HOST" in help_text
     assert "0.0.0.0" in help_text
+
+
+def test_serve_cli_help_describes_dashboard(capsys: pytest.CaptureFixture[str]) -> None:
+    try:
+        run_serve(["--help"])
+    except SystemExit as exc:
+        assert exc.code == 0
+    else:
+        raise AssertionError("--help should exit")
+
+    help_text = capsys.readouterr().out
+    assert "persistent Phantom dashboard" in help_text
+    assert "--port PORT" in help_text
 
 
 def test_server_can_bind_all_ipv4_interfaces(tmp_path: Path) -> None:
@@ -228,6 +242,136 @@ def test_server_serves_api_and_static(tmp_path: Path, monkeypatch: pytest.Monkey
         status, ctype, body = _get(f"{url}/agents/root")
         assert status == 200
         assert b"<div id=root>" in body
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_dashboard_replay_api_starts_and_polls_a_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    run_dir = _make_run(tmp_path, "replay-run", status="completed", end_time="2026-01-01T00:00:00Z")
+    (run_dir / "vulnerabilities.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": "vuln-0001",
+                    "title": "Proof finding",
+                    "target": "http://demo.testfire.net",
+                    "replay_spec": {
+                        "version": 1,
+                        "executor": "http",
+                        "target": "http://demo.testfire.net",
+                        "steps": [
+                            {
+                                "method": "GET",
+                                "path": "/",
+                                "assertions": [{"type": "status_equals", "value": 200}],
+                            }
+                        ],
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _bundle(tmp_path, monkeypatch)
+
+    def fake_start(self, *, run_dir, finding_id, spec, confirmed=False):  # noqa: ARG001
+        job = ReplayJob(
+            id="replay_test",
+            run_name=run_dir.name,
+            finding_id=finding_id,
+            status="preparing",
+            created_at="2026-01-01T00:00:00Z",
+            script=str(spec["script"]),
+        )
+        self._jobs[job.id] = job
+        return job
+
+    monkeypatch.setattr("phantom.core.replay.ReplayManager.start", fake_start)
+
+    httpd, url, token = serve(None, open_browser=False)
+    try:
+        cookie = _session_cookie(url, token)
+        status, body = _post(
+            url,
+            "/api/replays",
+            {"run": "replay-run", "finding_id": "vuln-0001"},
+            cookie=cookie,
+        )
+        assert status == 202
+        assert json.loads(body)["job"]["id"] == "replay_test"
+        status, _, body = _get(f"{url}/api/replays/replay_test?run=replay-run", cookie=cookie)
+        assert status == 200
+        assert json.loads(body)["finding_id"] == "vuln-0001"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_standalone_viewer_replay_api_uses_default_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A viewer opened after ``phantom --target`` can replay its current run."""
+    run_dir = _make_run(
+        tmp_path,
+        "standalone-replay",
+        status="completed",
+        end_time="2026-01-01T00:00:00Z",
+    )
+    (run_dir / "vulnerabilities.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": "vuln-0001",
+                    "title": "Proof finding",
+                    "target": "http://demo.testfire.net",
+                    "replay_spec": {
+                        "version": 1,
+                        "executor": "http",
+                        "target": "http://demo.testfire.net",
+                        "steps": [
+                            {
+                                "method": "GET",
+                                "path": "/",
+                                "assertions": [{"type": "status_equals", "value": 200}],
+                            }
+                        ],
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _bundle(tmp_path, monkeypatch)
+
+    def fake_start(self, *, run_dir, finding_id, spec, confirmed=False):  # noqa: ARG001
+        job = ReplayJob(
+            id="standalone_replay_test",
+            run_name=run_dir.name,
+            finding_id=finding_id,
+            status="preparing",
+            created_at="2026-01-01T00:00:00Z",
+            script=str(spec["script"]),
+        )
+        self._jobs[job.id] = job
+        return job
+
+    monkeypatch.setattr("phantom.core.replay.ReplayManager.start", fake_start)
+
+    httpd, url, token = serve(run_dir, open_browser=False)
+    try:
+        cookie = _session_cookie(url, token)
+        status, body = _post(
+            url,
+            "/api/replays",
+            {"finding_id": "vuln-0001"},
+            cookie=cookie,
+        )
+        assert status == 202
+        assert json.loads(body)["job"]["run_name"] == "standalone-replay"
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -533,7 +677,10 @@ def test_auth_mutations_require_session(tmp_path: Path, monkeypatch: pytest.Monk
     run_dir = _make_run(tmp_path, "authmut", status="running", end_time=None)
     _bundle(tmp_path, monkeypatch)
     forgotten = {"value": False}
-    monkeypatch.setattr("phantom.interface.viewer.auth.forget", lambda: forgotten.update(value=True))
+    monkeypatch.setattr(
+        "phantom.interface.viewer.auth.forget",
+        lambda: forgotten.update(value=True),
+    )
 
     httpd, url, _ = serve(run_dir, open_browser=False)
     try:

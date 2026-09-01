@@ -417,6 +417,15 @@ def main() -> None:
         run_view(sys.argv[2:])
         return
 
+    # `phantom serve` is the persistent dashboard shell. It does not require a
+    # target or Docker because scans are still launched through the existing
+    # scan path; this command only keeps the local control surface available.
+    if len(sys.argv) > 1 and sys.argv[1] == "serve":
+        from phantom.interface.viewer.cli import run_serve
+
+        run_serve(sys.argv[2:])
+        return
+
     # `phantom auth …` manages model-subscription sign-in and exits; it needs no
     # target, Docker, or scan setup.
     if len(sys.argv) > 1 and sys.argv[1] == "auth":

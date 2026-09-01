@@ -241,9 +241,10 @@ ignore = [
 "tests/test_stream_idle_timeout.py" = ["N802", "SLF001"]
 "tests/test_unknown_tool_recovery.py" = ["N802"]
 "tests/test_report_pdf.py" = ["S105", "S106"]
-# Stdlib HTTP handler overrides (do_GET/do_POST) and lazy imports that avoid a
-# circular dependency with phantom.telemetry / phantom.interface.viewer.report_pdf.
-"phantom/interface/viewer/server.py" = ["N802", "PLC0415"]
+# Stdlib HTTP handler overrides (do_GET/do_POST), the dashboard request router,
+# and lazy imports that avoid a circular dependency with phantom.telemetry /
+# phantom.interface.viewer.report_pdf.
+"phantom/interface/viewer/server.py" = ["N802", "PLC0415", "PLR0912"]
 # Lazy telemetry import to avoid importing PostHog before the viewer starts.
 "phantom/interface/viewer/cli.py" = ["PLC0415"]
 # Lazy imports inside functions to avoid circular dependency with

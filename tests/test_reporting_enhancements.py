@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from phantom.report.metadata import (
     normalize_attack_path,
@@ -202,6 +206,25 @@ async def test_high_business_impact_report_requires_validation(
                 "confidence": "confirmed",
             }
         ],
+        replay_spec={
+            "version": 1,
+            "executor": "http",
+            "target": "https://app.example.test",
+            "steps": [
+                {
+                    "method": "POST",
+                    "path": "/api/transfer",
+                    "body_type": "json",
+                    "body": {"fromAccount": "800002", "toAccount": "800005", "amount": 1},
+                    "assertions": [
+                        {"type": "status_equals", "value": 200},
+                        {"type": "body_contains", "value": "transferred"},
+                    ],
+                    "side_effect": "mutating",
+                }
+            ],
+            "side_effect": "mutating",
+        },
     )
     assert result["success"] is True
     assert result["severity"] == "medium"

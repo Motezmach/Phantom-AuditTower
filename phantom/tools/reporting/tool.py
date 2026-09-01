@@ -15,7 +15,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from agents import RunContextWrapper, function_tool
-
+from phantom.core.replay import normalize_replay_spec
 from phantom.report.metadata import (
     infer_impact_tags,
     infer_mitre_mappings,
@@ -196,9 +196,20 @@ _REQUIRED_FIELDS = {
 }
 
 _VALID_FIX_EFFORT = frozenset({"trivial", "low", "medium", "high"})
+_HTTP_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
 
 
-async def _do_create(  # noqa: PLR0912
+def _requires_replay_spec(endpoint: str | None, method: str | None) -> bool:
+    """Return whether a finding declares a concrete HTTP reproduction surface."""
+    if not isinstance(endpoint, str) or not endpoint.strip():
+        return False
+    if not isinstance(method, str) or method.strip().upper() not in _HTTP_METHODS:
+        return False
+    value = endpoint.strip().lower()
+    return value.startswith(("/", "http://", "https://"))
+
+
+async def _do_create(  # noqa: PLR0912, PLR0915
     *,
     title: str,
     description: str,
@@ -224,6 +235,7 @@ async def _do_create(  # noqa: PLR0912
     attack_path: list[dict[str, Any]] | None = None,
     mitre_techniques: list[dict[str, Any]] | None = None,
     impact_tags: list[str] | None = None,
+    replay_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
     fields = {
@@ -303,6 +315,20 @@ async def _do_create(  # noqa: PLR0912
     normalized_tags, tag_errors = normalize_impact_tags(impact_tags)
     errors.extend(tag_errors)
     explicit_impact_tags = impact_tags is not None
+    normalized_replay, replay_errors = normalize_replay_spec(
+        replay_spec,
+        finding_target=target,
+    )
+    if replay_errors:
+        logger.warning("Ignoring invalid replay_spec for %s: %s", title, "; ".join(replay_errors))
+    if _requires_replay_spec(endpoint, method) and normalized_replay is None:
+        if replay_errors:
+            errors.extend(f"replay_spec: {error}" for error in replay_errors)
+        else:
+            errors.append(
+                "replay_spec is required for every concrete HTTP finding; include the "
+                "validated request steps and at least one objective response assertion"
+            )
     if not normalized_tags:
         normalized_tags = infer_impact_tags(title, impact, technical_analysis, evidence)
 
@@ -437,6 +463,7 @@ async def _do_create(  # noqa: PLR0912
             attack_path=normalized_attack_path,
             mitre_techniques=normalized_mitre,
             impact_tags=normalized_tags,
+            replay_spec=normalized_replay,
             severity_basis=severity_basis,
         )
     except (ImportError, AttributeError) as e:
@@ -501,6 +528,7 @@ async def create_vulnerability_report(
     attack_path: list[dict[str, Any]] | None = None,
     mitre_techniques: list[dict[str, Any]] | None = None,
     impact_tags: list[str] | None = None,
+    replay_spec: dict[str, Any] | None = None,
 ) -> str:
     """File a vulnerability report — one report per fully-verified finding.
 
@@ -553,6 +581,33 @@ async def create_vulnerability_report(
     - Include ``impact_tags`` only for outcomes actually demonstrated;
       ``attack_path`` only for ordered evidence-backed steps; and
       ``mitre_techniques`` only for ATT&CK behaviors supported by evidence.
+
+    **Replay recipe**:
+
+    - When the finding has a concrete HTTP reproduction, include a structured
+      ``replay_spec`` so Phantom's dashboard can replay it later in a fresh
+      sandbox without invoking an agent. This is required for concrete HTTP
+      findings and is additive to, and does not replace, ``poc_script_code``.
+    - Use ``version: 1``, ``executor: "http"``, the same in-scope ``target``,
+      and one or more ``steps``. Each step has ``method``, a relative ``path``,
+      optional ``query``, ``headers``, ``body``/``body_type`` (``text``,
+      ``form``, or ``json``), and evidence-backed ``assertions``.
+    - Assertion types are ``status_equals``, ``status_in`` (with ``values``),
+      ``body_contains``, ``body_not_contains``, ``header_present``, and
+      ``regex``. Regex assertions run against response headers plus body;
+      ``body_contains`` is body-only and ``header_present`` accepts a header
+      name or value. Use ``captures`` plus ``{{name}}`` placeholders for a
+      value obtained by an earlier step; never embed a secret or a session
+      token in the report. Mark state-changing tests ``side_effect`` as
+      ``reversible`` or ``mutating`` so the dashboard requires confirmation.
+    - Build assertions from the observed response to the exact request, not
+      from the raw payload alone. Account for encoding, HTML normalization,
+      redirects, and headers; use ``regex`` when equivalent safe output can
+      vary. Do not invent a replay recipe from a vague PoC. If the finding is
+      non-HTTP/passive, requires browser execution or unavailable user
+      interaction, or has no safe deterministic success assertion, omit
+      ``replay_spec``; the finding remains valid and the dashboard will say
+      replay is unavailable.
 
     Automatic LLM-based **deduplication** rejects reports that describe
     the same root cause on the same asset as an existing report. If you
@@ -734,6 +789,11 @@ async def create_vulnerability_report(
             ``account_takeover``, ``financial_loss``, or
             ``database_extraction``. These tags are used only for contextual
             severity calibration and must not describe hypothetical impact.
+        replay_spec: Structured HTTP replay recipe for concrete HTTP findings.
+            It is validated and stored separately from the human-readable PoC.
+            Non-HTTP/passive findings may omit it; malformed recipes are rejected
+            for concrete HTTP findings so the Replay button cannot be created
+            without a usable recipe.
 
             **How ``fix_before`` / ``fix_after`` work**: they're used as
             literal GitHub/GitLab PR suggestion blocks. When a reviewer
@@ -865,6 +925,7 @@ async def create_vulnerability_report(
         attack_path=attack_path,
         mitre_techniques=mitre_techniques,
         impact_tags=impact_tags,
+        replay_spec=replay_spec,
     )
     return json.dumps(result, ensure_ascii=False, default=str)
 

@@ -196,6 +196,7 @@ function emptyVulnerabilityDefaults(): Omit<
     cvss_breakdown: null,
     mitre_techniques: null,
     mitre_mapping_status: null,
+    replay_spec: null,
     status_changed_at: null,
     status_changed_by: null,
     status_note: null,
@@ -257,6 +258,10 @@ function parseOneVulnerability(
     mitre_mapping_status:
       raw.mitre_mapping_status === "mapped" || raw.mitre_mapping_status === "not_mapped"
         ? (raw.mitre_mapping_status as MitreMappingStatus)
+        : null,
+    replay_spec:
+      raw.replay_spec && typeof raw.replay_spec === "object"
+        ? (raw.replay_spec as Vulnerability["replay_spec"])
         : null,
   };
 }

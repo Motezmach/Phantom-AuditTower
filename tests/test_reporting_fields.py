@@ -89,6 +89,19 @@ async def test_create_report_persists_new_fields(report_state: ReportState) -> N
             "evidence": "The reflected output reproduced twice.",
             "reproduction_count": 2,
         },
+        replay_spec={
+            "version": 1,
+            "executor": "http",
+            "target": "https://app.example.com",
+            "steps": [
+                {
+                    "method": "GET",
+                    "path": "/search",
+                    "query": {"q": "proof"},
+                    "assertions": [{"type": "body_contains", "value": "proof"}],
+                }
+            ],
+        },
     )
     assert result["success"] is True
     report = report_state.vulnerability_reports[0]
@@ -97,6 +110,7 @@ async def test_create_report_persists_new_fields(report_state: ReportState) -> N
     assert report["fix_effort"] == "low"
     assert report["fix_pr_body"] == "## Fix\nEncode output."
     assert report["finding_class"] == "dynamic"
+    assert report["replay_spec"]["executor"] == "http"
 
 
 async def test_create_report_requires_evidence_and_assumptions(
@@ -930,7 +944,7 @@ def test_tool_descriptions_include_formatting_guidance() -> None:
 
 def test_vuln_tool_exposes_new_params() -> None:
     props = create_vulnerability_report.params_json_schema["properties"]
-    for field in ("evidence", "assumptions", "fix_effort", "fix_pr_body"):
+    for field in ("evidence", "assumptions", "fix_effort", "fix_pr_body", "replay_spec"):
         assert field in props
 
     dep_props = create_dependency_report.params_json_schema["properties"]

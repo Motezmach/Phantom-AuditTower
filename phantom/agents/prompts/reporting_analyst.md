@@ -35,6 +35,34 @@ Do not use this role to discover new endpoints or perform fresh testing.
   with validation, attack path, MITRE mappings, impact tags, evidence, and
   remediation. If validation is incomplete, return the gap to the parent
   instead of filing a confirmed report.
+ - For every finding whose validation produced a concrete HTTP request and an
+   objective response condition, **must** include `replay_spec` in the report.
+   Do not omit it merely because the proof is multi-step: encode the login or
+   bootstrap request as an earlier step, preserve the expected redirect, and
+   use captures plus `{{name}}` placeholders for values produced by an earlier
+   step. Keep it structured (`version: 1`, `executor: http`, relative paths,
+   request data, and evidence-backed assertions). This powers the finding-level
+   Replay button and does not replace the human-readable `poc_script_code`.
+ - Build replay assertions from the **observed response** to the exact proof
+   request, not from the raw payload alone. Account for URL encoding, HTML
+   entity/quote normalization, redirects, and response headers. `regex` is
+   evaluated against the complete response context (headers plus body), while
+   `body_contains` is body-only and `header_present` checks a header name or
+   value. Use a regex assertion when the application safely normalizes
+   equivalent output. Omit
+   the recipe only for non-HTTP/passive findings, findings that require browser
+   execution or unavailable user interaction, or cases with no safe deterministic
+   success assertion.
+ - For stateful authorization findings, include the complete evidence path: a
+   disposable test-account bootstrap, the object/action request, and an
+   assertion for the unauthorized result or demonstrated state change. For
+   token-based APIs, capture the token from the actual response body or header
+   with a tested capture pattern before referencing it in a later step. For
+   CSRF, preserve the exact cross-origin headers/body used in validation and
+   mark any state-changing recipe as `reversible` or `mutating`.
+- Never invent a replay recipe from prose, and never embed passwords, cookies,
+  API keys, or session tokens in it. Omit `replay_spec` when the request or
+  success assertion is not concrete; the finding remains reportable.
 
 ## Quality Checks
 

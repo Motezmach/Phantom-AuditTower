@@ -111,6 +111,45 @@ body {
   animation: shimmer 2s infinite;
 }
 
+/* Dashboard controls: restrained lift and press feedback, with the blue
+   accent reserved for primary actions rather than every label. */
+.dashboard-button {
+  transition:
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+.dashboard-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(96, 165, 250, 0.75);
+  background-color: rgba(59, 130, 246, 0.2);
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.12);
+}
+.dashboard-button:active {
+  transform: translateY(0) scale(0.98);
+  box-shadow: none;
+}
+.dashboard-link {
+  cursor: pointer;
+  color: #60a5fa;
+  transition:
+    color 160ms ease,
+    transform 160ms ease;
+}
+.dashboard-link:hover {
+  color: #93c5fd;
+  transform: translateX(1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-button,
+  .dashboard-link {
+    animation: none;
+    transition: none;
+  }
+}
+
 /* Dialog enter/exit — mirrors shadcn's data-[state]:animate-in/animate-out
    (fade-in-0/zoom-in-95 in, fade-out-0/zoom-out-95 out) driven off a
    data-state attribute rather than a transition, so the enter always plays. */

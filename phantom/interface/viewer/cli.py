@@ -1,4 +1,4 @@
-"""`phantom view [<run>]` command: serve a run's viewer UI locally."""
+"""Local Phantom dashboard and run-viewer commands."""
 
 from __future__ import annotations
 
@@ -143,4 +143,62 @@ def _fail_no_run(console: Console, *, requested: str | None) -> NoReturn:
     raise SystemExit(1)
 
 
-__all__ = ["run_view"]
+def run_serve(argv: list[str]) -> None:
+    """Serve the persistent Phantom dashboard without requiring a run."""
+    parser = argparse.ArgumentParser(
+        prog="phantom serve",
+        description="Run the persistent Phantom dashboard locally.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=53149,
+        help="Port to serve on (default: 53149; falls back if it is busy).",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind to (default: 127.0.0.1; use 0.0.0.0 only when intended).",
+    )
+    parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Do not open the browser automatically.",
+    )
+    args = parser.parse_args(argv)
+
+    console = Console()
+    if not bundle_is_built():
+        console.print(
+            "[bold red]Dashboard UI is not built.[/]\n"
+            "Build it with: [cyan]cd phantom/interface/viewer/frontend && npm ci && "
+            "npm run build[/]"
+        )
+        raise SystemExit(1)
+
+    httpd, url, token = serve(
+        None,
+        host=args.host,
+        port=args.port,
+        open_browser=not args.no_open,
+    )
+    open_url = authorized_url(url, token)
+
+    console.print()
+    console.print("Serving [bold white]Phantom dashboard[/] at:")
+    console.print(f"  [#60a5fa]{open_url}[/]", soft_wrap=True)
+    console.print("[dim]The dashboard stays available while you manage targets and review runs.[/]")
+    console.print("[dim]Press Ctrl-C to stop the dashboard.[/]")
+    console.print()
+
+    try:
+        while True:
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        console.print("\n[dim]Dashboard stopped.[/]")
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+__all__ = ["run_serve", "run_view"]

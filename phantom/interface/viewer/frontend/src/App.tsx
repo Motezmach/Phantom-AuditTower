@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  ArrowRight,
   AlertCircle,
   Bot,
   ChevronDown,
   Download,
+  LayoutDashboard,
   Loader2,
   History,
+  Square,
 } from "lucide-react";
 import type { Vulnerability, VulnerabilitySeverity } from "@/types/issues";
 import { SEVERITY_COLORS } from "@/types/issues";
@@ -18,15 +21,22 @@ import AgentGraph from "@/components/live/AgentGraph";
 import { buildGraphAgents } from "@/components/live/AgentTranscript";
 import AgentDetailModal from "@/components/live/AgentDetailModal";
 import { ScanPromptComposer } from "@/components/live/ScanPromptComposer";
+import DashboardHome from "@/components/DashboardHome";
+import TargetsView from "@/components/TargetsView";
+import ScanView from "@/components/ScanView";
 import { severityCounts, type ParsedRunSummary } from "@/lib/local-run-parser";
 import {
   fetchAll,
   fetchCapabilities,
+  fetchDashboardInfo,
   fetchRunSummary,
+  fetchScans,
   fetchRuns,
   fetchTranscript,
   fetchVulnerabilities,
   reportPdfUrl,
+  stopScan,
+  type DashboardInfo,
   type LoadedRun,
   type RunsPayload,
 } from "@/data/serverSource";
@@ -35,8 +45,10 @@ import Sidebar from "@/components/Sidebar";
 import PastRunsView from "@/components/PastRunsView";
 import { RunDetails } from "@/components/RunDetails";
 import { TrustToast } from "@/components/TrustToast";
+import PlaybookView from "@/components/PlaybookView";
+import { listPlaybooks, PLAYBOOKS_CHANGED_EVENT } from "@/lib/playbook-store";
 
-export type View = "overview" | "issues" | "agents" | "history";
+export type View = "dashboard" | "targets" | "scan" | "overview" | "issues" | "agents" | "history" | "playbooks";
 
 const TRUST_BANNER =
   "Your findings stay on your machine. They're rendered here locally in your browser and never uploaded or stored by Phantom.";
@@ -51,8 +63,11 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<View>("overview");
   const [runs, setRuns] = useState<RunsPayload | null>(null);
-  // Whether this viewer can steer a live scan (true only inside the in-TUI
-  // launcher that shares the running scan's coordinator + event loop).
+  const [dashboardMode, setDashboardMode] = useState<boolean | null>(null);
+  const [dashboardInfo, setDashboardInfo] = useState<DashboardInfo | null>(null);
+  const [playbookCount, setPlaybookCount] = useState(() => listPlaybooks().length);
+  // Whether this viewer can steer a live scan. The TUI and dashboard both
+  // expose the same coordinator-backed capability.
   const [canSteer, setCanSteer] = useState(false);
 
   const refreshRuns = useCallback(async () => {
@@ -65,6 +80,17 @@ export default function App() {
 
   useEffect(() => {
     void refreshRuns();
+    fetchDashboardInfo()
+      .then((info) => {
+        setDashboardInfo(info);
+        setDashboardMode(info.mode === "dashboard");
+        if (info.mode === "dashboard") setView("dashboard");
+      })
+      .catch(() => {
+        // Older viewers or a transient startup failure safely behave as the
+        // existing run viewer.
+        setDashboardMode(false);
+      });
     // Capabilities never change over a session, so fetch once on mount.
     fetchCapabilities()
       .then((caps) => setCanSteer(caps.can_steer))
@@ -73,11 +99,18 @@ export default function App() {
       });
   }, [refreshRuns]);
 
+  useEffect(() => {
+    const refreshPlaybookCount = () => setPlaybookCount(listPlaybooks().length);
+    window.addEventListener(PLAYBOOKS_CHANGED_EVENT, refreshPlaybookCount);
+    return () => window.removeEventListener(PLAYBOOKS_CHANGED_EVENT, refreshPlaybookCount);
+  }, []);
+
   // Live polling, scoped to the active run. Re-runs when the active run changes
   // so switching to a past run (?run=<name>) reloads its data; a finished run
   // does a single full fetch and stops.
   const finishedRef = useRef(false);
   useEffect(() => {
+    if (dashboardMode === null || (dashboardMode && activeRun === null)) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     finishedRef.current = false;
@@ -139,12 +172,16 @@ export default function App() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [activeRun]);
+  }, [activeRun, dashboardMode]);
 
   const counts = useMemo(
     () => (run ? severityCounts(run.vulnerabilities) : null),
     [run]
   );
+  // The standalone viewer loads its run as the server's default and therefore
+  // has no dashboard selection in `activeRun`. Keep the persisted run name so
+  // run-scoped actions (such as replay) work in both viewer modes.
+  const loadedRunName = activeRun ?? run?.summary.runName ?? null;
   const selected = run?.vulnerabilities.find((v) => v.id === selectedId) ?? null;
   const agentCount = run?.transcript.agents.length ?? 0;
 
@@ -156,21 +193,23 @@ export default function App() {
   // Reset the guard whenever the active run changes so the newly selected run
   // gets its own default.
   useEffect(() => {
-    initialViewAppliedRef.current = false;
-  }, [activeRun]);
+    // Dashboard-selected runs intentionally open on Overview. The classic
+    // in-run viewer keeps its existing live-agent default.
+    initialViewAppliedRef.current = dashboardMode === true;
+  }, [activeRun, dashboardMode]);
 
   useEffect(() => {
     if (initialViewAppliedRef.current || !run) return;
     if (run.finished) {
       initialViewAppliedRef.current = true;
       setView("overview");
-    } else if (agentCount > 0) {
+    } else if (!dashboardMode && agentCount > 0) {
       // Live and agents have appeared: default to the agent graph. If it is
       // live but no agents exist yet, wait (do not apply, do not set the flag).
       initialViewAppliedRef.current = true;
       setView("agents");
     }
-  }, [run, agentCount]);
+  }, [run, agentCount, dashboardMode]);
 
   // User-initiated navigation: mark the default guard applied so the per-run
   // default effect never yanks the user off the view they chose.
@@ -184,6 +223,7 @@ export default function App() {
     setSelectedId(null);
     setRun(null);
     setError(null);
+    setView("overview");
     // Reset the guard so the per-run default applies to the newly selected run.
     initialViewAppliedRef.current = false;
   }, []);
@@ -192,6 +232,54 @@ export default function App() {
     void refreshRuns();
     userSetView("history");
   }, [refreshRuns, userSetView]);
+
+  const openDashboard = useCallback(() => {
+    setActiveRun(null);
+    setSelectedId(null);
+    setRun(null);
+    setError(null);
+    userSetView("dashboard");
+    void refreshRuns();
+  }, [refreshRuns, userSetView]);
+
+  const openTargets = useCallback(() => {
+    setActiveRun(null);
+    setSelectedId(null);
+    setRun(null);
+    setError(null);
+    userSetView("targets");
+  }, [userSetView]);
+
+  const openScan = useCallback(() => {
+    setActiveRun(null);
+    setSelectedId(null);
+    setRun(null);
+    setError(null);
+    userSetView("scan");
+  }, [userSetView]);
+
+  const openPlaybooks = useCallback(() => {
+    setActiveRun(null);
+    setSelectedId(null);
+    setRun(null);
+    setError(null);
+    userSetView("playbooks");
+  }, [userSetView]);
+
+  const openIssues = useCallback(() => {
+    setSelectedId(null);
+    userSetView("issues");
+  }, [userSetView]);
+
+  const openOverview = useCallback(() => {
+    userSetView("overview");
+    void refreshRuns();
+  }, [refreshRuns, userSetView]);
+
+  const openRunFromScan = useCallback((name: string) => {
+    selectRun(name);
+    initialViewAppliedRef.current = false;
+  }, [selectRun]);
 
   return (
     <div className="min-h-screen bg-black text-white flex">
@@ -208,7 +296,14 @@ export default function App() {
         issuesCount={run?.vulnerabilities.length ?? 0}
         agentCount={agentCount}
         runCount={runs?.count ?? 0}
+        playbookCount={playbookCount}
         onOpenHistory={openHistory}
+        dashboardMode={dashboardMode === true}
+        onOpenDashboard={openDashboard}
+        onOpenOverview={openOverview}
+        onOpenTargets={openTargets}
+        onOpenScan={openScan}
+        onOpenPlaybooks={openPlaybooks}
       />
 
       <div className="flex-1 min-w-0">
@@ -221,6 +316,7 @@ export default function App() {
             </div>
             {run && <LiveIndicator finished={run.finished} />}
             <div className="ml-auto flex items-center gap-3">
+              {dashboardInfo && <LlmStatus info={dashboardInfo} />}
               {runs && !runs.locked && runs.runs.length > 0 && (
                 <RunSwitcher
                   runs={runs}
@@ -234,7 +330,7 @@ export default function App() {
         </div>
 
         <div className="max-w-[88rem] mx-auto px-3 sm:px-6 py-8 sm:py-12 space-y-6">
-          {error && !run && view !== "history" && (
+          {error && !run && view !== "history" && view !== "dashboard" && view !== "targets" && (
             <div className="rounded-lg px-4 py-3 flex gap-3 items-start border border-red-500/30 bg-red-500/5">
               <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-red-400" aria-hidden="true" />
               <p className="text-sm text-red-300">{error}</p>
@@ -247,7 +343,23 @@ export default function App() {
             key={`${activeRun ?? "launched"}:${view}:${selectedId ?? ""}`}
             className="animate-page-in space-y-6"
           >
-          {view === "history" ? (
+          {dashboardMode && activeRun === null && view === "dashboard" ? (
+            <DashboardHome
+              info={dashboardInfo}
+              runs={runs}
+              onOpenTargets={openTargets}
+              onOpenScan={openScan}
+              onOpenRun={selectRun}
+            />
+          ) : dashboardMode && activeRun === null && view === "targets" ? (
+            <TargetsView />
+          ) : dashboardMode && activeRun === null && view === "scan" ? (
+            <ScanView info={dashboardInfo} onOpenTargets={openTargets} onOpenRun={openRunFromScan} />
+          ) : dashboardMode && activeRun === null && view === "playbooks" ? (
+            <PlaybookView />
+          ) : dashboardMode && activeRun === null && (view === "overview" || view === "issues" || view === "agents") ? (
+            <RunSelectionPrompt section={view} onOpenHistory={openHistory} />
+          ) : view === "history" ? (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
                 <History className="w-5 h-5 text-[#888]" aria-hidden="true" />
@@ -292,6 +404,8 @@ export default function App() {
                   raw={run.raw}
                   finished={run.finished}
                   runName={activeRun}
+                  dashboardMode={dashboardMode === true}
+                  onOpenIssues={openIssues}
                 />
               ) : view === "agents" && agentCount > 0 ? (
                 <AgentsTab run={run} canSteer={canSteer} />
@@ -303,7 +417,13 @@ export default function App() {
                   >
                     <ArrowLeft className="w-4 h-4" /> Back to all findings
                   </button>
-                  <VulnerabilityDetail vulnerability={selected} />
+                  <VulnerabilityDetail
+                    vulnerability={selected}
+                    runName={loadedRunName}
+                    replayEnabled={!!loadedRunName}
+                    playbookEnabled={dashboardMode === true && !!loadedRunName}
+                    targetName={runTitle(run?.summary.targets[0] ?? null, run?.summary.runName ?? run?.summary.runId ?? "Current target")}
+                  />
                 </div>
               ) : (
                 <FindingsList
@@ -318,6 +438,68 @@ export default function App() {
         </div>
       </div>
       <TrustToast message={TRUST_BANNER} />
+    </div>
+  );
+}
+
+function RunSelectionPrompt({
+  section,
+  onOpenHistory,
+}: {
+  section: "overview" | "issues" | "agents";
+  onOpenHistory: () => void;
+}) {
+  const isAgents = section === "agents";
+  const isOverview = section === "overview";
+  return (
+    <div className="flex min-h-[420px] items-center justify-center rounded-2xl border border-[#222] bg-[rgba(255,255,255,0.02)] px-6 py-12 text-center">
+      <div className="max-w-md">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-blue-400/25 bg-blue-500/10 text-blue-400">
+          {isAgents ? (
+            <Bot className="h-5 w-5" aria-hidden="true" />
+          ) : isOverview ? (
+            <LayoutDashboard className="h-5 w-5" aria-hidden="true" />
+          ) : (
+            <AlertCircle className="h-5 w-5" aria-hidden="true" />
+          )}
+        </div>
+        <h1 className="mt-5 text-xl font-semibold text-white">
+          Select a past run to view {isAgents ? "its agent graph" : isOverview ? "its overview" : "its issues"}
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-[#888]">
+          This workspace is not attached to a scan yet. Choose a completed or live run from Past runs to open the
+          existing Phantom viewer.
+        </p>
+        <button
+          onClick={onOpenHistory}
+          className="mt-6 inline-flex items-center gap-2 rounded-lg bg-blue-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-400"
+        >
+          <History className="h-4 w-4" aria-hidden="true" />
+          Browse past runs
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LlmStatus({ info }: { info: DashboardInfo }) {
+  const model = info.llm.model ?? "not configured";
+  return (
+    <div
+      className="hidden max-w-[260px] items-center gap-2 text-xs text-[#888] sm:flex"
+      title={info.llm.configured ? "LLM configured from PHANTOM_LLM" : "Set PHANTOM_LLM before scanning"}
+    >
+      <span
+        className={`relative h-1.5 w-1.5 flex-shrink-0 rounded-full ${
+          info.llm.configured ? "bg-emerald-400" : "bg-amber-400"
+        }`}
+      >
+        {info.llm.configured && (
+          <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400 opacity-40" />
+        )}
+      </span>
+      <span className="text-[#666]">LLM</span>
+      <span className="truncate font-mono text-[#aaa]">{model}</span>
     </div>
   );
 }
@@ -595,6 +777,8 @@ function OverviewTab({
   raw,
   finished,
   runName,
+  dashboardMode,
+  onOpenIssues,
 }: {
   summary: ParsedRunSummary;
   counts: Record<VulnerabilitySeverity, number>;
@@ -603,6 +787,8 @@ function OverviewTab({
   raw: Record<string, unknown>;
   finished: boolean;
   runName: string | null;
+  dashboardMode: boolean;
+  onOpenIssues: () => void;
 }) {
   const sections = (
     [
@@ -622,8 +808,19 @@ function OverviewTab({
       </div>
 
       {total > 0 && (
-        <div className="animate-card-in rounded-xl border border-[#222] bg-[rgba(255,255,255,0.02)] p-5">
-          <IssueSeveritySummary findings={{ total, ...counts }} />
+        <div className="animate-card-in">
+          <button
+            type="button"
+            onClick={onOpenIssues}
+            className="dashboard-button group w-full cursor-pointer rounded-xl border border-[#222] bg-[rgba(255,255,255,0.02)] p-5 text-left transition-all duration-300 ease-out hover:-translate-y-0.5 hover:border-blue-400/40 hover:bg-[rgba(59,130,246,0.045)] hover:shadow-[0_12px_32px_rgba(0,0,0,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+            aria-label={`View all ${total} issues for this run`}
+          >
+            <IssueSeveritySummary findings={{ total, ...counts }} />
+            <span className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-[#777] transition-colors duration-300 group-hover:text-blue-300">
+              View all issues
+              <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1" aria-hidden="true" />
+            </span>
+          </button>
         </div>
       )}
 
@@ -632,6 +829,12 @@ function OverviewTab({
       {finished && (
         <div className="animate-card-in">
           <DownloadReportCta runName={runName} />
+        </div>
+      )}
+
+      {!finished && dashboardMode && runName && (
+        <div className="animate-card-in">
+          <StopScanCta runName={runName} />
         </div>
       )}
 
@@ -651,6 +854,61 @@ function OverviewTab({
         )
       )}
 
+    </div>
+  );
+}
+
+function StopScanCta({ runName }: { runName: string }) {
+  const [stopping, setStopping] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const requestStop = async () => {
+    if (stopping) return;
+    setStopping(true);
+    setError(null);
+    try {
+      const scans = await fetchScans();
+      const active = scans.active ?? scans.jobs.find(
+        (job) =>
+          job.run_name === runName && (job.status === "preparing" || job.status === "running")
+      );
+      if (!active) {
+        setError("No active dashboard scan was found for this run.");
+        setStopping(false);
+        return;
+      }
+      const result = await stopScan(active.id);
+      if (!result.ok) {
+        setError(result.message);
+        setStopping(false);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not stop this scan.");
+      setStopping(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.04] px-5 py-4">
+      <div className="flex items-start gap-3">
+        <Square className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-300" aria-hidden="true" />
+        <div>
+          <p className="text-sm font-semibold text-white">Scan in progress</p>
+          <p className="mt-1 text-xs text-[#888]">
+            Stop the live Phantom run gracefully. Partial evidence remains available for review.
+          </p>
+          {error && <p className="mt-2 text-xs text-red-300">{error}</p>}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => void requestStop()}
+        disabled={stopping}
+        className="dashboard-button inline-flex items-center gap-2 rounded-lg border border-amber-300/30 px-3.5 py-2 text-sm font-semibold text-amber-200 transition-all hover:border-amber-200/60 hover:bg-amber-300/10 disabled:cursor-wait disabled:opacity-60"
+      >
+        {stopping ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />}
+        {stopping ? "Stopping…" : "Stop scan"}
+      </button>
     </div>
   );
 }

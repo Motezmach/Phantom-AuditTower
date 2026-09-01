@@ -98,6 +98,36 @@ export interface MitreTechnique {
 
 export type MitreMappingStatus = "mapped" | "not_mapped";
 
+export interface ReplayAssertion {
+  type: string;
+  value?: string | number;
+  values?: number[];
+}
+
+export interface ReplayStep {
+  name: string;
+  method: string;
+  path: string;
+  query?: Record<string, unknown>;
+  headers?: Record<string, string>;
+  body?: unknown;
+  body_type?: "text" | "form" | "json";
+  assertions?: ReplayAssertion[];
+  captures?: Array<{ name: string; source: "body" | "headers"; pattern: string }>;
+  follow_redirects?: boolean;
+}
+
+export interface ReplaySpec {
+  version: 1;
+  executor: "http";
+  target: string;
+  description?: string;
+  side_effect: "none" | "reversible" | "mutating";
+  requires_confirmation: boolean;
+  steps: ReplayStep[];
+  script: string;
+}
+
 export interface Vulnerability {
   id: string;
   scan_id: string | null;
@@ -132,6 +162,7 @@ export interface Vulnerability {
   cvss_breakdown: CVSSBreakdown | null;
   mitre_techniques: MitreTechnique[] | null;
   mitre_mapping_status?: MitreMappingStatus | null;
+  replay_spec: ReplaySpec | null;
   status_changed_at: string | null;
   status_changed_by: string | null;
   status_note: string | null;

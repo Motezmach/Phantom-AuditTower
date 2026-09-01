@@ -14,21 +14,21 @@ from agents.usage import Usage
 from phantom.config import codex
 from phantom.config.loader import load_settings
 from phantom.core.paths import run_dir_for
-from phantom.report.pricing import resolve_litellm_model
 from phantom.report.coverage import baseline_coverage_items, normalize_coverage_item
+from phantom.report.pricing import resolve_litellm_model
 from phantom.report.sarif import write_sarif
 from phantom.report.usage import LLMUsageLedger
-from phantom.utils.atomic import atomic_write_text as _atomic_write_text
 from phantom.report.writer import (
     _strip_leading_heading,
     read_run_record,
-    write_coverage,
     write_attack_paths,
+    write_coverage,
     write_executive_report,
     write_run_record,
     write_vulnerabilities,
 )
 from phantom.telemetry import posthog, scarf
+from phantom.utils.atomic import atomic_write_text as _atomic_write_text
 
 
 logger = logging.getLogger(__name__)
@@ -357,6 +357,7 @@ class ReportState:
         attack_path: list[dict[str, Any]] | None = None,
         mitre_techniques: list[dict[str, Any]] | None = None,
         impact_tags: list[str] | None = None,
+        replay_spec: dict[str, Any] | None = None,
         severity_basis: str | None = None,
     ) -> str:
         report_id = f"vuln-{len(self.vulnerability_reports) + 1:04d}"
@@ -420,6 +421,8 @@ class ReportState:
             report["mitre_mapping_status"] = "mapped" if mitre_techniques else "not_mapped"
         if impact_tags:
             report["impact_tags"] = impact_tags
+        if replay_spec:
+            report["replay_spec"] = replay_spec
         if severity_basis:
             report["severity_basis"] = severity_basis
 

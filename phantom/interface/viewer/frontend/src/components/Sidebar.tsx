@@ -1,8 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
+  BookMarked,
   Bot,
   History,
+  LayoutDashboard,
+  ScanLine,
+  Target,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { View } from "@/App";
@@ -27,9 +31,16 @@ interface SidebarProps {
   view: View;
   onSelectView: (view: View) => void;
   issuesCount: number;
+  playbookCount: number;
   agentCount: number;
   runCount: number;
   onOpenHistory: () => void;
+  dashboardMode: boolean;
+  onOpenDashboard: () => void;
+  onOpenOverview: () => void;
+  onOpenTargets: () => void;
+  onOpenScan: () => void;
+  onOpenPlaybooks: () => void;
 }
 
 function readInt(key: string, fallback: number): number {
@@ -46,9 +57,16 @@ export default function Sidebar({
   view,
   onSelectView,
   issuesCount,
+  playbookCount,
   agentCount,
   runCount,
   onOpenHistory,
+  dashboardMode,
+  onOpenDashboard,
+  onOpenOverview,
+  onOpenTargets,
+  onOpenScan,
+  onOpenPlaybooks,
 }: SidebarProps) {
   const [width, setWidth] = useState(() => {
     const w = readInt(WIDTH_KEY, DEFAULT_WIDTH);
@@ -168,10 +186,34 @@ export default function Sidebar({
           <div className="relative flex flex-col gap-px px-2">
             <NavItem
               icon={<ProjectsIcon />}
-              label="Pentest Overview"
-              active={view === "overview"}
-              onClick={() => onSelectView("overview")}
+              label={dashboardMode ? "Audit workspace" : "Pentest Overview"}
+              active={dashboardMode ? view === "dashboard" : view === "overview"}
+              onClick={dashboardMode ? onOpenDashboard : () => onSelectView("overview")}
             />
+            {dashboardMode && (
+              <NavItem
+                icon={<LayoutDashboard className="h-4 w-4" />}
+                label="Overview"
+                active={view === "overview"}
+                onClick={onOpenOverview}
+              />
+            )}
+            {dashboardMode && (
+              <NavItem
+                icon={<Target className="h-4 w-4" />}
+                label="Targets"
+                active={view === "targets"}
+                onClick={onOpenTargets}
+              />
+            )}
+            {dashboardMode && (
+              <NavItem
+                icon={<ScanLine className="h-4 w-4" />}
+                label="Scan"
+                active={view === "scan"}
+                onClick={onOpenScan}
+              />
+            )}
             <NavItem
               icon={<AlertTriangle className="h-4 w-4" />}
               label="Issues"
@@ -179,6 +221,15 @@ export default function Sidebar({
               active={view === "issues"}
               onClick={() => onSelectView("issues")}
             />
+            {dashboardMode && (
+              <NavItem
+                icon={<BookMarked className="h-4 w-4" />}
+                label="Playbook"
+                count={playbookCount > 0 ? playbookCount : undefined}
+                active={view === "playbooks"}
+                onClick={onOpenPlaybooks}
+              />
+            )}
             {agentCount > 0 && (
               <NavItem
                 icon={<Bot className="h-4 w-4" />}

@@ -105,3 +105,4 @@ schema.graphql
 /.benchmarks/
 /references/
 /skills/
+.phantom/
