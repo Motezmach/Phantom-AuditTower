@@ -1,5 +1,6 @@
 import type { Vulnerability } from "@/types/issues";
 import {
+  parseVulnerabilityRecord,
   parseRunJson,
   parseVulnerabilitiesJson,
   type ParsedRunSummary,
@@ -90,6 +91,109 @@ export interface ScanJob {
 export interface ScansPayload {
   active: ScanJob | null;
   jobs: ScanJob[];
+}
+
+export interface PlaybookEntry {
+  id: string;
+  name: string;
+  targetName: string;
+  targetUrl: string | null;
+  targetId: string | null;
+  auditorName: string;
+  addedAt: string;
+  updatedAt: string;
+  runName: string | null;
+  sourceFindingId: string;
+  status: string;
+  replayCount: number;
+  lastReplayAt: string | null;
+  lastReplayStatus: ReplayJobStatus | null;
+  lastReplayReason: string | null;
+  replayHistory: Array<Record<string, unknown>>;
+  finding: Vulnerability;
+}
+
+function parsePlaybook(raw: unknown): PlaybookEntry | null {
+  if (!raw || typeof raw !== "object") return null;
+  const item = raw as Record<string, unknown>;
+  if (!item.finding || typeof item.finding !== "object") return null;
+  const finding = item.finding as Record<string, unknown>;
+  return {
+    id: String(item.id ?? ""),
+    name: String(item.name ?? ""),
+    targetName: String(item.target_name ?? ""),
+    targetUrl: typeof item.target_url === "string" ? item.target_url : null,
+    targetId: typeof item.target_id === "string" ? item.target_id : null,
+    auditorName: String(item.auditor_name ?? ""),
+    addedAt: String(item.added_at ?? ""),
+    updatedAt: String(item.updated_at ?? item.added_at ?? ""),
+    runName: typeof item.source_run_name === "string" ? item.source_run_name : null,
+    sourceFindingId: String(item.source_finding_id ?? ""),
+    status: String(item.status ?? "active"),
+    replayCount: typeof item.replay_count === "number" ? item.replay_count : 0,
+    lastReplayAt: typeof item.last_replay_at === "string" ? item.last_replay_at : null,
+    lastReplayStatus: typeof item.last_replay_status === "string" ? item.last_replay_status as ReplayJobStatus : null,
+    lastReplayReason: typeof item.last_replay_reason === "string" ? item.last_replay_reason : null,
+    replayHistory: Array.isArray(item.replay_history) ? item.replay_history.filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === "object") : [],
+    // Playbook records may come from an older scan snapshot and therefore
+    // omit fields that the issue detail page expects (for example `status`) or
+    // use the writer's scalar CWE form. Reuse the run parser's normalization
+    // seam so the Playbook detail is identical to the Issues detail.
+    finding: parseVulnerabilityRecord(finding, 0, null),
+  };
+}
+
+export async function fetchPlaybooks(targetId?: string | null): Promise<PlaybookEntry[]> {
+  const suffix = targetId ? `?target_id=${encodeURIComponent(targetId)}` : "";
+  const obj = (await getJson(`/api/playbooks${suffix}`)) as { playbooks?: unknown };
+  return Array.isArray(obj?.playbooks)
+    ? obj.playbooks.map(parsePlaybook).filter((item): item is PlaybookEntry => item !== null)
+    : [];
+}
+
+export type CreatePlaybookResult =
+  | { ok: true; entry: PlaybookEntry; created: true }
+  | { ok: false; message: string; code?: string; entry?: PlaybookEntry };
+
+export async function createPlaybook(
+  runName: string,
+  findingId: string,
+  name: string,
+  auditorName: string,
+  targetId?: string | null,
+): Promise<CreatePlaybookResult> {
+  const { ok, data } = await postJson("/api/playbooks", {
+    run: runName,
+    finding_id: findingId,
+    name,
+    auditor_name: auditorName,
+    ...(targetId ? { target_id: targetId } : {}),
+  });
+  const entry = parsePlaybook(data.playbook);
+  if (ok && entry) return { ok: true, entry, created: true };
+  return {
+    ok: false,
+    code: typeof data.error === "string" ? data.error : undefined,
+    entry: entry ?? undefined,
+    message: typeof data.message === "string" ? data.message : "Could not save this Playbook.",
+  };
+}
+
+export async function deletePlaybook(id: string): Promise<{ ok: boolean; message?: string }> {
+  const { ok, data } = await fetch(`/api/playbooks/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    cache: "no-store",
+  }).then(async (res) => {
+    let parsed: Record<string, unknown> = {};
+    try {
+      const body = await res.json();
+      if (body && typeof body === "object") parsed = body as Record<string, unknown>;
+    } catch {
+      /* empty response */
+    }
+    return { ok: res.ok, data: parsed };
+  });
+  return ok ? { ok: true } : { ok: false, message: typeof data.message === "string" ? data.message : "Could not remove this Playbook." };
 }
 
 export type ReplayJobStatus =
@@ -328,6 +432,33 @@ export async function fetchReplay(
 ): Promise<ReplayJob> {
   return (await getJson(
     `/api/replays/${encodeURIComponent(replayId)}?run=${encodeURIComponent(runName)}`,
+  )) as ReplayJob;
+}
+
+export async function startPlaybookReplay(
+  playbookId: string,
+  confirmed = false,
+): Promise<StartReplayResult> {
+  const { ok, data } = await postJson(
+    `/api/playbooks/${encodeURIComponent(playbookId)}/replay`,
+    { confirmed },
+  );
+  if (ok && data.job && typeof data.job === "object") {
+    return { ok: true, job: data.job as ReplayJob };
+  }
+  return {
+    ok: false,
+    code: typeof data.error === "string" ? data.error : undefined,
+    message:
+      typeof data.message === "string"
+        ? data.message
+        : "Could not start the Playbook replay.",
+  };
+}
+
+export async function fetchPlaybookReplay(replayId: string): Promise<ReplayJob> {
+  return (await getJson(
+    `/api/playbook-replays/${encodeURIComponent(replayId)}`,
   )) as ReplayJob;
 }
 

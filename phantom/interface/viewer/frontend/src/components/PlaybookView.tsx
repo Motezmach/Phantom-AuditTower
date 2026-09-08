@@ -4,6 +4,7 @@ import type { Vulnerability } from "@/types/issues";
 import VulnerabilityDetail from "@/components/vulnerability/VulnerabilityDetail";
 import ConfirmRemovePlaybookModal from "@/components/ConfirmRemovePlaybookModal";
 import {
+  loadPlaybooks,
   listPlaybooks,
   PLAYBOOKS_CHANGED_EVENT,
   removePlaybook,
@@ -41,8 +42,10 @@ export default function PlaybookView() {
   const [entries, setEntries] = useState<PlaybookEntry[]>(listPlaybooks);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [removeRequested, setRemoveRequested] = useState<PlaybookEntry | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    void loadPlaybooks().then(setEntries).catch(() => setError("Could not load the server Playbook."));
     const refresh = () => setEntries(listPlaybooks());
     window.addEventListener(PLAYBOOKS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(PLAYBOOKS_CHANGED_EVENT, refresh);
@@ -79,14 +82,27 @@ export default function PlaybookView() {
             <span className="inline-flex items-center gap-2"><CalendarDays className="h-3.5 w-3.5 text-[#555]" />Added {formatDate(selected.addedAt)}</span>
           </div>
         </div>
-        <VulnerabilityDetail vulnerability={selected.finding} runName={selected.runName} replayEnabled={!!selected.runName} playbookEnabled={false} />
+        <VulnerabilityDetail
+          vulnerability={selected.finding}
+          runName={selected.runName}
+          playbookId={selected.id}
+          replayEnabled={!!selected.finding.replay_spec}
+          playbookEnabled={false}
+        />
         <ConfirmRemovePlaybookModal
           entry={removeRequested}
           onCancel={() => setRemoveRequested(null)}
           onConfirm={() => {
-            if (removeRequested) removePlaybook(removeRequested.id);
-            setRemoveRequested(null);
-            setSelectedId(null);
+            if (!removeRequested) return;
+            const id = removeRequested.id;
+            void removePlaybook(id)
+              .then(() => {
+                setRemoveRequested(null);
+                setSelectedId(null);
+              })
+              .catch((cause: unknown) => {
+                setError(cause instanceof Error ? cause.message : "Could not remove this Playbook.");
+              });
           }}
         />
       </div>
@@ -102,6 +118,8 @@ export default function PlaybookView() {
         <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">Saved attacks</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-[#888]">Keep confirmed attacks ready for fast retesting. Each entry preserves the finding exactly as it was saved.</p>
       </div>
+
+      {error && <p className="rounded-lg border border-red-400/20 bg-red-400/[0.05] px-4 py-3 text-sm text-red-300">{error}</p>}
 
       {entries.length === 0 ? (
         <div className="flex min-h-[360px] flex-col items-center justify-center rounded-2xl border border-[#222] bg-[rgba(255,255,255,0.02)] px-6 text-center">

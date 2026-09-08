@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import {
   fetchScans,
   fetchTargets,
+  fetchPlaybooks,
   startScan,
   stopScan,
   type DashboardInfo,
@@ -37,6 +38,7 @@ const ACTIVE_STATUSES = new Set<ScanJob["status"]>(["preparing", "running"]);
 
 export default function ScanView({ info, onOpenTargets, onOpenRun }: ScanViewProps) {
   const [targets, setTargets] = useState<RegisteredTarget[]>([]);
+  const [playbookCounts, setPlaybookCounts] = useState<Record<string, number>>({});
   const [targetLoading, setTargetLoading] = useState(true);
   const [targetError, setTargetError] = useState<string | null>(null);
   const [targetId, setTargetId] = useState("");
@@ -54,7 +56,16 @@ export default function ScanView({ info, onOpenTargets, onOpenRun }: ScanViewPro
   const jobTerminal = job ? !jobActive : false;
 
   const refreshState = useCallback(async () => {
-    const [targetResult, scanResult] = await Promise.all([fetchTargets(), fetchScans()]);
+    const [targetResult, scanResult, playbookResult] = await Promise.all([
+      fetchTargets(),
+      fetchScans(),
+      fetchPlaybooks().catch(() => []),
+    ]);
+    const counts: Record<string, number> = {};
+    for (const playbook of playbookResult) {
+      if (playbook.targetId) counts[playbook.targetId] = (counts[playbook.targetId] ?? 0) + 1;
+    }
+    setPlaybookCounts(counts);
     setTargets(targetResult.filter((target) => target.active));
     setTargetId((current) => {
       if (current && targetResult.some((target) => target.id === current && target.active)) return current;
@@ -181,6 +192,7 @@ export default function ScanView({ info, onOpenTargets, onOpenRun }: ScanViewPro
       {step === 1 && (
         <TargetStep
           targets={targets}
+          playbookCounts={playbookCounts}
           selectedId={targetId}
           loading={targetLoading}
           onSelect={setTargetId}
@@ -259,12 +271,14 @@ function StepRail({ step }: { step: WizardStep }) {
 
 function TargetStep({
   targets,
+  playbookCounts,
   selectedId,
   loading,
   onSelect,
   onOpenTargets,
 }: {
   targets: RegisteredTarget[];
+  playbookCounts: Record<string, number>;
   selectedId: string;
   loading: boolean;
   onSelect: (id: string) => void;
@@ -338,8 +352,13 @@ function TargetStep({
                   ))}
                 </span>
               </span>
-              <span className="mt-1 flex items-center gap-1.5 text-xs text-emerald-300">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Active
+              <span className="mt-1 flex flex-shrink-0 flex-col items-end gap-1 text-xs">
+                <span className="flex items-center gap-1.5 text-emerald-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Active
+                </span>
+                <span className="text-[#777]">
+                  {playbookCounts[target.id] ?? 0} {playbookCounts[target.id] === 1 ? "playbook" : "playbooks"}
+                </span>
               </span>
             </button>
           ))}

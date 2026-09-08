@@ -8,7 +8,6 @@ import json
 import logging
 import re
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from pygments.lexers import PythonLexer, get_lexer_by_name, guess_lexer
@@ -20,6 +19,8 @@ from phantom.utils.atomic import atomic_write_text
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from pygments.lexer import Lexer
 
 logger = logging.getLogger(__name__)
@@ -349,6 +350,16 @@ def render_vulnerability_md(report: dict[str, Any]) -> str:  # noqa: PLR0912, PL
             lines.append(f"**Reproductions:** {validation['reproduction_count']}")
         if validation.get("evidence"):
             lines.append(str(validation["evidence"]))
+        lines.append("")
+
+    playbook = report.get("playbook")
+    if isinstance(playbook, dict):
+        lines.append("## Playbook Regression\n")
+        lines.append("**Status:** Reproduced by the fast Playbook gate")
+        if playbook.get("name"):
+            lines.append(f"**Playbook:** {playbook['name']}")
+        if playbook.get("replay_id"):
+            lines.append(f"**Replay:** `{playbook['replay_id']}`")
         lines.append("")
 
     if report.get("attack_path"):

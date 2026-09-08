@@ -90,6 +90,20 @@ function parseMitreTechniques(raw: unknown): MitreTechnique[] | null {
   return techniques.length > 0 ? techniques : null;
 }
 
+function parsePlaybookMarker(raw: unknown): Vulnerability["playbook"] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  const id = asStringOrNull(record.id);
+  if (!id) return null;
+  return {
+    id,
+    name: asStringOrNull(record.name) ?? "Saved Playbook",
+    status: asStringOrNull(record.status) ?? "reproduced",
+    replay_id: asStringOrNull(record.replay_id),
+    replayed_at: asStringOrNull(record.replayed_at),
+  };
+}
+
 function parseJson(text: string, label: string): unknown {
   try {
     return JSON.parse(text);
@@ -211,7 +225,7 @@ function emptyVulnerabilityDefaults(): Omit<
   };
 }
 
-function parseOneVulnerability(
+export function parseVulnerabilityRecord(
   raw: Record<string, unknown>,
   index: number,
   runId: string | null
@@ -224,7 +238,11 @@ function parseOneVulnerability(
         ? (cweRaw.filter((c) => typeof c === "string" && c) as string[])
         : null;
 
-  const status: VulnerabilityStatus = "open";
+  const rawStatus = asStringOrNull(raw.status);
+  const status: VulnerabilityStatus = rawStatus &&
+    (["open", "in_progress", "snoozed", "fixed", "ignored"] as string[]).includes(rawStatus)
+    ? rawStatus as VulnerabilityStatus
+    : "open";
 
   return {
     ...emptyVulnerabilityDefaults(),
@@ -246,14 +264,20 @@ function parseOneVulnerability(
     poc_script_code: asStringOrNull(raw.poc_script_code),
     cwe,
     code_locations: Array.isArray(raw.code_locations)
-      ? (raw.code_locations as Vulnerability["code_locations"])
+      ? (raw.code_locations.filter(
+          (location): location is Record<string, unknown> =>
+            !!location && typeof location === "object" && !Array.isArray(location),
+        ) as unknown as Vulnerability["code_locations"])
       : null,
     remediation_steps: asStringOrNull(raw.remediation_steps),
     fix_pr_body: asStringOrNull(raw.fix_pr_body),
     evidence: asStringOrNull(raw.evidence),
     assumptions: asStringOrNull(raw.assumptions),
     fix_effort: (asStringOrNull(raw.fix_effort) as Vulnerability["fix_effort"]) ?? null,
-    cvss_breakdown: (raw.cvss_breakdown as Vulnerability["cvss_breakdown"]) ?? null,
+    cvss_breakdown:
+      raw.cvss_breakdown && typeof raw.cvss_breakdown === "object" && !Array.isArray(raw.cvss_breakdown)
+        ? (raw.cvss_breakdown as Vulnerability["cvss_breakdown"])
+        : null,
     mitre_techniques: parseMitreTechniques(raw.mitre_techniques),
     mitre_mapping_status:
       raw.mitre_mapping_status === "mapped" || raw.mitre_mapping_status === "not_mapped"
@@ -263,6 +287,8 @@ function parseOneVulnerability(
       raw.replay_spec && typeof raw.replay_spec === "object"
         ? (raw.replay_spec as Vulnerability["replay_spec"])
         : null,
+    source: asStringOrNull(raw.source),
+    playbook: parsePlaybookMarker(raw.playbook),
   };
 }
 
@@ -278,7 +304,7 @@ export function parseVulnerabilitiesJson(
     if (!item || typeof item !== "object") {
       throw new RunParseError(`vulnerabilities.json entry #${i + 1} is not an object.`);
     }
-    return parseOneVulnerability(item as Record<string, unknown>, i, runId);
+    return parseVulnerabilityRecord(item as Record<string, unknown>, i, runId);
   });
 }
 

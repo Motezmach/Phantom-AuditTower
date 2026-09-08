@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import subprocess
@@ -49,6 +50,59 @@ def _number(value: Any) -> int | float:
         return float(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _finding_text(value: Any) -> str:
+    return " ".join(str(value or "").strip().casefold().split())
+
+
+def _finding_cwes(report: dict[str, Any]) -> set[str]:
+    raw = report.get("cwe")
+    values = raw if isinstance(raw, list) else [raw]
+    return {_finding_text(value) for value in values if _finding_text(value)}
+
+
+def _same_finding_location(current: dict[str, Any], saved: dict[str, Any]) -> bool:
+    """Match a Playbook snapshot to an agent finding without title-only merging."""
+    current_playbook = current.get("playbook")
+    if (
+        isinstance(current_playbook, dict)
+        and current_playbook.get("id")
+        and current_playbook.get("id") == saved.get("playbook_id")
+    ):
+        return True
+
+    current_target = _finding_text(current.get("target")).rstrip("/")
+    saved_target = _finding_text(saved.get("target")).rstrip("/")
+    current_endpoint = _finding_text(current.get("endpoint"))
+    saved_endpoint = _finding_text(saved.get("endpoint"))
+    current_method = _finding_text(current.get("method"))
+    saved_method = _finding_text(saved.get("method"))
+    same_location = bool(
+        current_target
+        and saved_target
+        and current_target == saved_target
+        and current_endpoint
+        and current_endpoint == saved_endpoint
+        and current_method
+        and current_method == saved_method
+    )
+    if not same_location:
+        return False
+
+    current_cwes = _finding_cwes(current)
+    saved_cwes = _finding_cwes(saved)
+    if current_cwes and saved_cwes and current_cwes.intersection(saved_cwes):
+        return True
+    return _finding_text(current.get("title")) == _finding_text(saved.get("title"))
+
+
+def _mark_playbook_regression(report: dict[str, Any], marker: dict[str, Any]) -> None:
+    report["playbook"] = copy.deepcopy(marker)
+    validation = report.get("validation")
+    merged_validation = copy.deepcopy(validation) if isinstance(validation, dict) else {}
+    merged_validation["playbook_replay"] = copy.deepcopy(marker)
+    report["validation"] = merged_validation
 
 
 def _parse_repo_full_name(uri: str) -> str | None:
@@ -137,6 +191,7 @@ class ReportState:
 
         self.scan_results: dict[str, Any] | None = None
         self.scan_config: dict[str, Any] | None = None
+        self.playbook_gate: dict[str, Any] | None = None
         self._llm_usage = LLMUsageLedger()
         self._telemetry_llm_usage_baseline: dict[str, Any] = {}
         auth_mode = codex.auth_mode(load_settings().llm.model)
@@ -206,6 +261,9 @@ class ReportState:
             if isinstance(scan_results, dict):
                 self.scan_results = scan_results
                 self.final_scan_result = self._format_final_scan_result(scan_results)
+            playbook_gate = data.get("playbook_gate")
+            if isinstance(playbook_gate, dict):
+                self.playbook_gate = copy.deepcopy(playbook_gate)
             self._hydrate_llm_usage(data.get("llm_usage"))
             self._telemetry_llm_usage_baseline = self._build_llm_usage_record()
             logger.info("report state hydrated run.json from %s", run_dir)
@@ -440,6 +498,108 @@ class ReportState:
     def get_existing_vulnerabilities(self) -> list[dict[str, Any]]:
         return list(self.vulnerability_reports)
 
+    def set_playbook_gate(self, gate: dict[str, Any] | None) -> None:
+        """Attach the fast Playbook gate result to this run's artifacts."""
+        self.playbook_gate = copy.deepcopy(gate) if isinstance(gate, dict) else None
+        if self.playbook_gate is None:
+            self.run_record.pop("playbook_gate", None)
+        else:
+            self.run_record["playbook_gate"] = copy.deepcopy(self.playbook_gate)
+
+    def merge_playbook_regressions(
+        self,
+        gate: dict[str, Any] | None,
+        playbook_entries: dict[str, dict[str, Any]],
+    ) -> list[str]:
+        """Merge confirmed Playbook replays into the current run's findings.
+
+        The gate is deliberately replay-only and does not start an agent.  A
+        confirmed replay is nevertheless a confirmed regression for this run,
+        so it must be visible in the same finding index as AI-discovered issues.
+        Existing equivalent findings are decorated instead of duplicated;
+        otherwise the saved finding snapshot is added with a fresh run-local ID.
+        """
+        if not isinstance(gate, dict) or not isinstance(gate.get("results"), list):
+            return []
+
+        changed_ids: list[str] = []
+        with self._artifact_lock:
+            for raw_result in gate["results"]:
+                if not isinstance(raw_result, dict) or raw_result.get("status") != "confirmed":
+                    continue
+                playbook_id = str(raw_result.get("playbook_id") or "").strip()
+                entry = playbook_entries.get(playbook_id)
+                if not playbook_id or not isinstance(entry, dict):
+                    logger.warning(
+                        "Confirmed Playbook %s has no source snapshot; skipping merge",
+                        playbook_id or "<missing>",
+                    )
+                    continue
+                source_finding = entry.get("finding")
+                if not isinstance(source_finding, dict):
+                    continue
+
+                marker = {
+                    "id": playbook_id,
+                    "name": str(entry.get("name") or "Saved Playbook"),
+                    "status": "reproduced",
+                    "replay_id": raw_result.get("replay_id"),
+                    "replayed_at": datetime.now(UTC).isoformat(),
+                }
+                existing = next(
+                    (
+                        report
+                        for report in self.vulnerability_reports
+                        if _same_finding_location(
+                            report,
+                            {**source_finding, "playbook_id": playbook_id},
+                        )
+                    ),
+                    None,
+                )
+                if existing is not None:
+                    _mark_playbook_regression(existing, marker)
+                    existing_id = str(existing.get("id") or "")
+                    self._saved_vuln_ids.discard(existing_id)
+                    changed_ids.append(existing_id)
+                    continue
+
+                report = copy.deepcopy(source_finding)
+                report["id"] = self._next_vulnerability_id()
+                report.setdefault("title", entry.get("name") or "Playbook regression")
+                report.setdefault("severity", "low")
+                report["timestamp"] = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+                report.setdefault("target", entry.get("target_url"))
+                report.setdefault("finding_class", "dynamic")
+                report["source"] = "playbook_gate"
+                report["playbook"] = marker
+                validation = report.get("validation")
+                validation = copy.deepcopy(validation) if isinstance(validation, dict) else {}
+                validation["playbook_replay"] = marker
+                report["validation"] = validation
+                self.vulnerability_reports.append(report)
+                changed_ids.append(str(report["id"]))
+
+        if changed_ids:
+            logger.info(
+                "Merged %d confirmed Playbook regression(s) into the current run: %s",
+                len(changed_ids),
+                ", ".join(changed_ids),
+            )
+        return changed_ids
+
+    def _next_vulnerability_id(self) -> str:
+        """Return an unused run-local vulnerability ID without overwriting files."""
+        used = {
+            str(report.get("id"))
+            for report in self.vulnerability_reports
+            if isinstance(report, dict) and report.get("id")
+        }
+        number = 1
+        while f"vuln-{number:04d}" in used:
+            number += 1
+        return f"vuln-{number:04d}"
+
     def record_sdk_usage(
         self,
         *,
@@ -530,6 +690,9 @@ class ReportState:
                 "diff_base": config.get("diff_base"),
             }
         )
+        configured_gate = config.get("playbook_context")
+        if isinstance(configured_gate, dict):
+            self.set_playbook_gate(configured_gate)
         # A fresh run has no prior ledger. Resume keeps the hydrated planner
         # marker so an interrupted scan can continue through the same gate.
         if not self.coverage_items:
@@ -629,6 +792,13 @@ class ReportState:
                 write_vulnerabilities(run_dir, self.vulnerability_reports, self._saved_vuln_ids)
 
             write_attack_paths(run_dir, self.vulnerability_reports)
+
+            if self.playbook_gate is not None:
+                self.run_record["playbook_gate"] = copy.deepcopy(self.playbook_gate)
+                _atomic_write_text(
+                    run_dir / "playbook_gate.json",
+                    json.dumps(self.playbook_gate, ensure_ascii=False, indent=2, default=str),
+                )
 
             _atomic_write_text(
                 run_dir / "coverage.json",

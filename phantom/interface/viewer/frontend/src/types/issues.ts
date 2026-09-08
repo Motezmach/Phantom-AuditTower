@@ -174,6 +174,14 @@ export interface Vulnerability {
   severity_changed_by: string | null;
   severity_override_reason: string | null;
   retest_of_vulnerability_id: string | null;
+  source?: string | null;
+  playbook?: {
+    id: string;
+    name: string;
+    status: "reproduced" | string;
+    replay_id?: string | null;
+    replayed_at?: string | null;
+  } | null;
   slack_thread_url?: string;
   display_number?: number | null;
   location_meta?: {

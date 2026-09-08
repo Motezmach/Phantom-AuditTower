@@ -10,6 +10,7 @@ RUNS_DIR_NAME = "phantom_runs"
 DATA_DIR_NAME = ".phantom"
 TARGETS_FILENAME = "targets.json"
 SCAN_JOBS_FILENAME = "scans.json"
+PLAYBOOKS_FILENAME = "playbooks.json"
 RUNTIME_STATE_DIR_NAME = ".state"
 RUN_RECORD_FILENAME = "run.json"
 
@@ -54,6 +55,11 @@ def targets_path(*, cwd: Path | None = None) -> Path:
 def scan_jobs_path(*, cwd: Path | None = None) -> Path:
     """Return the local dashboard scan-job registry path."""
     return data_dir(cwd=cwd) / SCAN_JOBS_FILENAME
+
+
+def playbooks_path(*, cwd: Path | None = None) -> Path:
+    """Return the local Playbook registry path used by the dashboard."""
+    return data_dir(cwd=cwd) / PLAYBOOKS_FILENAME
 
 
 def latest_run_dir(*, cwd: Path | None = None) -> Path | None:

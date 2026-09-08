@@ -21,7 +21,10 @@ from typing import TYPE_CHECKING, Literal
 from phantom.config import load_settings
 from phantom.config.settings import DEFAULT_MAX_TURNS
 from phantom.core.agents import AgentCoordinator
-from phantom.core.paths import scan_jobs_path
+from phantom.core.paths import run_dir_for, scan_jobs_path
+from phantom.core.playbook_runner import PlaybookRunner
+from phantom.core.playbooks import PlaybookStore
+from phantom.core.replay import ReplayManager
 from phantom.core.targets import TargetStore, TargetValidationError
 from phantom.interface.scan_setup import (
     build_targets_info,
@@ -177,9 +180,17 @@ class DashboardScanManager:
         *,
         target_store: TargetStore | None = None,
         job_store: ScanJobStore | None = None,
+        playbook_store: PlaybookStore | None = None,
+        replay_manager: ReplayManager | None = None,
     ) -> None:
         self.target_store = target_store or TargetStore()
         self.job_store = job_store or ScanJobStore()
+        self.playbook_store = playbook_store or PlaybookStore()
+        self.replay_manager = replay_manager or ReplayManager()
+        self.playbook_runner = PlaybookRunner(
+            store=self.playbook_store,
+            replay_manager=self.replay_manager,
+        )
         self._lock = threading.RLock()
         self._threads: dict[str, threading.Thread] = {}
         self._stop_events: dict[str, threading.Event] = {}
@@ -357,11 +368,56 @@ class DashboardScanManager:
         try:
             args = self._build_args(job)
             build_targets_info(args)
+            target = next(
+                (item for item in self.target_store.list() if item.id == job.target_id),
+                None,
+            )
+            if target is None:
+                raise ScanStartError(
+                    "The registered target for this scan is no longer available.",
+                    code="target_not_found",
+                )
             model = _configured_model()
-            asyncio.run(preflight_model_connection(model))
             _ensure_not_stopped(stop_event)
             prepare_run(args)
             _ensure_not_stopped(stop_event)
+
+            # This fast replay-only gate runs after the run directory exists,
+            # but before LLM preflight or any agent starts.
+            try:
+                playbook_context = asyncio.run(
+                    self.playbook_runner.run_for_target(
+                        target=target,
+                        run_dir=run_dir_for(args.run_name),
+                        stop_event=stop_event,
+                    )
+                )
+            except Exception:  # noqa: BLE001 - Playbook availability must not block a scan
+                logger.exception("Playbook gate failed; continuing with the Phantom scan")
+                playbook_context = {
+                    "enabled": True,
+                    "target_id": target.id,
+                    "total": 0,
+                    "executed": 0,
+                    "reproduced": 0,
+                    "not_reproduced": 0,
+                    "inconclusive": 0,
+                    "blocked": 0,
+                    "failed": 0,
+                    "results": [],
+                    "error": "The Playbook gate was unavailable; the AI scan continued.",
+                }
+            logger.info(
+                "Playbook gate completed for %s: %s reproduced, %s not reproduced, "
+                "%s blocked, %s failed",
+                target.base_url,
+                playbook_context.get("reproduced", 0),
+                playbook_context.get("not_reproduced", 0),
+                playbook_context.get("blocked", 0),
+                playbook_context.get("failed", 0),
+            )
+            _ensure_not_stopped(stop_event)
+            asyncio.run(preflight_model_connection(model))
 
             current = self._update(
                 current,
@@ -385,12 +441,22 @@ class DashboardScanManager:
                 "scope_mode": args.scope_mode,
                 "diff_base": None,
                 "resume_instruction": "",
+                "playbook_context": playbook_context,
             }
             report_state.set_scan_config(scan_config)
             report_state.save_run_data()
             set_global_report_state(report_state)
 
-            asyncio.run(self._execute(args, stop_event))
+            asyncio.run(self._execute(args, stop_event, playbook_context))
+            if not stop_event.is_set():
+                playbook_entries = {
+                    item.id: item.as_dict()
+                    for item in self.playbook_store.list(target_id=target.id)
+                }
+                report_state.merge_playbook_regressions(
+                    playbook_context,
+                    playbook_entries,
+                )
             final_status = (
                 "completed"
                 if not stop_event.is_set() and report_state.run_record.get("status") == "completed"
@@ -439,6 +505,7 @@ class DashboardScanManager:
         self,
         args: argparse.Namespace,
         stop_event: threading.Event,
+        playbook_context: dict[str, object] | None = None,
     ) -> None:
         from phantom.core.runner import run_phantom_scan  # noqa: PLC0415
 
@@ -465,6 +532,7 @@ class DashboardScanManager:
                     "scope_mode": args.scope_mode,
                     "diff_base": None,
                     "resume_instruction": "",
+                    "playbook_context": playbook_context or {},
                 },
                 scan_id=args.run_name,
                 image=str(load_settings().runtime.image),
@@ -474,6 +542,7 @@ class DashboardScanManager:
                 interactive=False,
                 max_turns=DEFAULT_MAX_TURNS,
                 max_budget_usd=None,
+                extra_system_prompt_context={"playbook_context": playbook_context or {}},
             )
         finally:
             with self._lock:

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookMarked, Check, X } from "lucide-react";
+import { BookMarked, Check, Loader2, X } from "lucide-react";
 import type { Vulnerability } from "@/types/issues";
 import {
   addPlaybook,
@@ -29,12 +29,14 @@ export default function AddToPlaybookModal({
   const [name, setName] = useState(vulnerability.title);
   const [auditorName, setAuditorName] = useState(getLastAuditorName);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setName(vulnerability.title);
     setAuditorName(getLastAuditorName());
     setError(null);
+    setSaving(false);
   }, [open, vulnerability.id, vulnerability.title]);
 
   useEffect(() => {
@@ -53,7 +55,8 @@ export default function AddToPlaybookModal({
 
   if (!open) return null;
 
-  const save = () => {
+  const save = async () => {
+    if (saving) return;
     if (!name.trim()) {
       setError("Give this playbook a name before saving.");
       return;
@@ -62,20 +65,27 @@ export default function AddToPlaybookModal({
       setError("Enter the auditor name for this saved attack.");
       return;
     }
-    const result = addPlaybook({
-      name,
-      targetName,
-      targetUrl,
-      auditorName,
-      runName,
-      finding: vulnerability,
-    });
-    if (!result.created) {
-      setError("This finding is already saved in the Playbook.");
-      return;
+    setSaving(true);
+    try {
+      const result = await addPlaybook({
+        name,
+        targetName,
+        targetUrl,
+        auditorName,
+        runName,
+        finding: vulnerability,
+      });
+      if (!result.created) {
+        setError("This finding is already saved in the Playbook.");
+        return;
+      }
+      onSaved?.(result.entry);
+      onClose();
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "Could not save this Playbook.");
+    } finally {
+      setSaving(false);
     }
-    onSaved?.(result.entry);
-    onClose();
   };
 
   return (
@@ -122,7 +132,7 @@ export default function AddToPlaybookModal({
               value={name}
               onChange={(event) => setName(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") save();
+                if (event.key === "Enter") void save();
               }}
               className="mt-2 h-11 w-full rounded-lg border border-[#333] bg-black px-3 text-sm text-white outline-none transition-colors placeholder:text-[#555] focus:border-blue-400/70"
               placeholder="e.g. Unauthenticated admin takeover"
@@ -148,9 +158,9 @@ export default function AddToPlaybookModal({
 
         <div className="flex items-center justify-end gap-3 border-t border-[#252525] px-6 py-4">
           <button type="button" onClick={onClose} className="rounded-lg border border-[#333] px-4 py-2 text-sm text-[#aaa] transition-colors hover:border-[#555] hover:text-white">Cancel</button>
-          <button type="button" onClick={save} className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-black transition-all hover:bg-[#e8e8e8] hover:shadow-[0_0_24px_rgba(255,255,255,0.14)]">
-            <BookMarked className="h-4 w-4" aria-hidden="true" />
-            Save playbook
+          <button type="button" disabled={saving} onClick={() => void save()} className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-black transition-all hover:bg-[#e8e8e8] hover:shadow-[0_0_24px_rgba(255,255,255,0.14)] disabled:cursor-wait disabled:opacity-60">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <BookMarked className="h-4 w-4" aria-hidden="true" />}
+            {saving ? "Saving…" : "Save playbook"}
           </button>
         </div>
       </div>

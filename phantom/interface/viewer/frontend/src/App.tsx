@@ -10,6 +10,7 @@ import {
   Loader2,
   History,
   Square,
+  BookMarked,
 } from "lucide-react";
 import type { Vulnerability, VulnerabilitySeverity } from "@/types/issues";
 import { SEVERITY_COLORS } from "@/types/issues";
@@ -46,7 +47,7 @@ import PastRunsView from "@/components/PastRunsView";
 import { RunDetails } from "@/components/RunDetails";
 import { TrustToast } from "@/components/TrustToast";
 import PlaybookView from "@/components/PlaybookView";
-import { listPlaybooks, PLAYBOOKS_CHANGED_EVENT } from "@/lib/playbook-store";
+import { listPlaybooks, loadPlaybooks, PLAYBOOKS_CHANGED_EVENT } from "@/lib/playbook-store";
 
 export type View = "dashboard" | "targets" | "scan" | "overview" | "issues" | "agents" | "history" | "playbooks";
 
@@ -80,6 +81,7 @@ export default function App() {
 
   useEffect(() => {
     void refreshRuns();
+    void loadPlaybooks();
     fetchDashboardInfo()
       .then((info) => {
         setDashboardInfo(info);
@@ -654,6 +656,12 @@ function FindingsList({
             <span className="block text-sm font-medium text-white truncate">{v.title}</span>
             {v.target && (
               <span className="block text-xs text-[#666] font-mono truncate">{v.target}</span>
+            )}
+            {v.playbook && (
+              <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-300">
+                <BookMarked className="h-3 w-3" aria-hidden="true" />
+                Playbook reproduced
+              </span>
             )}
           </span>
           <span
