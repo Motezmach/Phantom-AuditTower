@@ -14,7 +14,7 @@ export default function LoadSkillRenderer({ args }: ToolRendererProps) {
     <div className="flex items-center gap-2">
       <span className="text-blue-400/80 font-semibold text-sm">Loading skill</span>
       {requestedSkills.length > 0 && (
-        <span className="text-[#888] text-[13px]">{requestedSkills.join(", ")}</span>
+        <span className="text-[var(--neutral-888)] text-[13px]">{requestedSkills.join(", ")}</span>
       )}
     </div>
   );

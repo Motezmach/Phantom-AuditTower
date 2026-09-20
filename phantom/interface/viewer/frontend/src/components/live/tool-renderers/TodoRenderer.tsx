@@ -21,7 +21,7 @@ const ACTION_LABELS: Record<string, { label: string; Icon: typeof Circle }> = {
 function StatusIcon({ status }: { status: string }) {
   if (status === "done") return <CircleCheckBig className="w-3.5 h-3.5 text-blue-400/70 shrink-0" />;
   if (status === "in_progress") return <CircleDot className="w-3.5 h-3.5 text-purple-400/70 shrink-0 animate-pulse" />;
-  return <Circle className="w-3.5 h-3.5 text-[#444] shrink-0" />;
+  return <Circle className="w-3.5 h-3.5 text-[var(--neutral-444)] shrink-0" />;
 }
 
 function TodoList({ todos, highlightId }: { todos: TodoItem[]; highlightId?: string }) {
@@ -43,10 +43,10 @@ function TodoList({ todos, highlightId }: { todos: TodoItem[]; highlightId?: str
             <span
               className={`text-[13px] leading-snug ${
                 s === "done"
-                  ? "text-[#555] line-through"
+                  ? "text-[var(--neutral-555)] line-through"
                   : s === "in_progress"
-                    ? "text-[#bbb]"
-                    : "text-[#999]"
+                    ? "text-[var(--neutral-bbb)]"
+                    : "text-[var(--neutral-999)]"
               }`}
             >
               {todo.title ?? "(untitled)"}
@@ -71,7 +71,7 @@ export default function TodoRenderer({ toolName, args, result }: ToolRendererPro
           <ActionIcon className="w-3.5 h-3.5 text-purple-400/60" />
           <span className="text-purple-400/80 font-semibold text-sm">{action.label}</span>
         </div>
-        <div className="mt-1.5 text-[#888] text-[13px]">{res.trim()}</div>
+        <div className="mt-1.5 text-[var(--neutral-888)] text-[13px]">{res.trim()}</div>
       </div>
     );
   }
@@ -111,7 +111,7 @@ export default function TodoRenderer({ toolName, args, result }: ToolRendererPro
       </div>
       {error && <div className="text-red-400/70 text-[13px] mb-2">{error}</div>}
       {todos.length > 0 && (
-        <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] px-3 py-2">
+        <div className="rounded-lg border border-foreground/[0.06] bg-foreground/[0.015] px-3 py-2">
           <TodoList todos={todos} highlightId={highlightId} />
         </div>
       )}

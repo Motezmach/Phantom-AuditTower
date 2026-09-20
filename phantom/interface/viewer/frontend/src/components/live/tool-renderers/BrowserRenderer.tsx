@@ -27,7 +27,7 @@ const CLICK_ACTIONS: Record<string, string> = {
 
 function UrlLabel({ prefix, url, suffix }: { prefix: string; url?: string; suffix?: string }) {
   return (
-    <span className="text-[#888] text-[13px]">
+    <span className="text-[var(--neutral-888)] text-[13px]">
       {prefix}
       {url && (
         <a
@@ -100,7 +100,7 @@ export default function BrowserRenderer({ args }: ToolRendererProps) {
     <div>
       <div className="flex items-center gap-2 min-w-0">
         <span className="text-blue-400/80 font-semibold text-sm shrink-0">Browser</span>
-        <span className="min-w-0 truncate text-[#888] text-[13px]">
+        <span className="min-w-0 truncate text-[var(--neutral-888)] text-[13px]">
           {typeof description === "string" ? description : description}
         </span>
       </div>

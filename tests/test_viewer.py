@@ -14,6 +14,8 @@ import pytest
 
 from phantom.core.paths import latest_run_dir, runs_base_dir
 from phantom.core.replay import ReplayJob
+from phantom.core.reviews import RunReviewStore
+from phantom.core.targets import TargetStore
 from phantom.interface.viewer.cli import run_serve, run_view
 from phantom.interface.viewer.server import serve
 from phantom.interface.viewer.transcript import (
@@ -27,8 +29,6 @@ from phantom.interface.viewer.transcript import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
-
-    import pytest
 
 
 def _make_run(base: Path, name: str, *, status: str, end_time: str | None) -> Path:
@@ -377,6 +377,232 @@ def test_standalone_viewer_replay_api_uses_default_run(
         httpd.server_close()
 
 
+def test_playbook_signing_requires_a_confirmed_replay_for_the_same_finding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    run_dir = _make_run(
+        tmp_path, "signing-run", status="completed", end_time="2026-01-01T00:00:00Z"
+    )
+    (run_dir / "vulnerabilities.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": "vuln-0001",
+                    "title": "Proof finding",
+                    "target": "http://demo.testfire.net",
+                    "endpoint": "/",
+                    "method": "GET",
+                    "replay_spec": {
+                        "version": 1,
+                        "executor": "http",
+                        "target": "http://demo.testfire.net",
+                        "steps": [
+                            {
+                                "method": "GET",
+                                "path": "/",
+                                "assertions": [{"type": "status_equals", "value": 200}],
+                            }
+                        ],
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    TargetStore().create(name="Demo", base_url="http://demo.testfire.net")
+    _bundle(tmp_path, monkeypatch)
+
+    replay = ReplayJob(
+        id="replay_confirmed",
+        run_name="signing-run",
+        finding_id="vuln-0001",
+        status="confirmed",
+        created_at="2026-01-01T00:00:00Z",
+        result={"confirmed": True, "completed_steps": 1},
+    )
+    pending_replay = ReplayJob(
+        id="replay_pending",
+        run_name="signing-run",
+        finding_id="vuln-0001",
+        status="running",
+        created_at="2026-01-01T00:00:00Z",
+    )
+    mismatched_replay = ReplayJob(
+        id="replay_other_finding",
+        run_name="signing-run",
+        finding_id="vuln-0099",
+        status="confirmed",
+        created_at="2026-01-01T00:00:00Z",
+        result={"confirmed": True},
+    )
+    replays = {
+        replay.id: replay,
+        pending_replay.id: pending_replay,
+        mismatched_replay.id: mismatched_replay,
+    }
+    monkeypatch.setattr(
+        "phantom.core.replay.ReplayManager.get",
+        lambda _self, replay_id: replays.get(replay_id),
+    )
+
+    httpd, url, token = serve(None, open_browser=False)
+    try:
+        cookie = _session_cookie(url, token)
+
+        status, body = _post(
+            url,
+            "/api/playbooks",
+            {
+                "run": "signing-run",
+                "finding_id": "vuln-0001",
+                "name": "Proof",
+                "auditor_name": "Auditor",
+            },
+            cookie=cookie,
+        )
+        assert status == 400
+        assert json.loads(body)["error"] == "replay_confirmation_required"
+
+        status, body = _post(
+            url,
+            "/api/playbooks",
+            {
+                "run": "signing-run",
+                "finding_id": "vuln-0001",
+                "name": "Proof",
+                "auditor_name": "Auditor",
+                "confirmed_replay_id": "replay_forged",
+            },
+            cookie=cookie,
+        )
+        assert status == 404
+        assert json.loads(body)["error"] == "replay_not_found"
+
+        for replay_id, error in (
+            (pending_replay.id, "replay_not_confirmed"),
+            (mismatched_replay.id, "replay_finding_mismatch"),
+        ):
+            status, body = _post(
+                url,
+                "/api/playbooks",
+                {
+                    "run": "signing-run",
+                    "finding_id": "vuln-0001",
+                    "name": "Proof",
+                    "auditor_name": "Auditor",
+                    "confirmed_replay_id": replay_id,
+                },
+                cookie=cookie,
+            )
+            assert status == 409
+            assert json.loads(body)["error"] == error
+
+        status, body = _post(
+            url,
+            "/api/playbooks",
+            {
+                "run": "signing-run",
+                "finding_id": "vuln-0001",
+                "name": "Proof",
+                "auditor_name": "Auditor",
+                "confirmed_replay_id": replay.id,
+            },
+            cookie=cookie,
+        )
+        assert status == 201
+        assert json.loads(body)["playbook"]["confirmed_by_replay_id"] == replay.id
+
+        # A finding with a Playbook cannot also be rejected through a direct API call.
+        status, body = _post(
+            url,
+            "/api/rejections",
+            {
+                "run": "signing-run",
+                "finding_id": "vuln-0001",
+                "reason": "Should not be both signed and rejected.",
+                "auditor_name": "Auditor",
+            },
+            cookie=cookie,
+        )
+        assert status == 409
+        assert json.loads(body)["error"] == "finding_in_playbook"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_rejected_finding_cannot_be_signed_through_the_api(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    run_dir = _make_run(
+        tmp_path, "reject-first", status="completed", end_time="2026-01-01T00:00:00Z"
+    )
+    finding = {
+        "id": "vuln-0001",
+        "title": "Rejected proof",
+        "target": "http://demo.testfire.net",
+        "endpoint": "/",
+        "method": "GET",
+        "replay_spec": {
+            "version": 1,
+            "executor": "http",
+            "target": "http://demo.testfire.net",
+            "steps": [{"method": "GET", "path": "/", "assertions": []}],
+        },
+    }
+    (run_dir / "vulnerabilities.json").write_text(json.dumps([finding]), encoding="utf-8")
+    TargetStore().create(name="Demo", base_url="http://demo.testfire.net")
+    _bundle(tmp_path, monkeypatch)
+    replay = ReplayJob(
+        id="replay_after_rejection",
+        run_name="reject-first",
+        finding_id="vuln-0001",
+        status="confirmed",
+        created_at="2026-01-01T00:00:00Z",
+        result={"confirmed": True},
+    )
+    monkeypatch.setattr(
+        "phantom.core.replay.ReplayManager.get",
+        lambda _self, replay_id: replay if replay_id == replay.id else None,
+    )
+
+    httpd, url, token = serve(None, open_browser=False)
+    try:
+        cookie = _session_cookie(url, token)
+        status, _ = _post(
+            url,
+            "/api/rejections",
+            {
+                "run": "reject-first",
+                "finding_id": "vuln-0001",
+                "reason": "The evidence is not exploitable.",
+                "auditor_name": "Auditor",
+            },
+            cookie=cookie,
+        )
+        assert status == 201
+
+        status, body = _post(
+            url,
+            "/api/playbooks",
+            {
+                "run": "reject-first",
+                "finding_id": "vuln-0001",
+                "name": "Rejected proof",
+                "auditor_name": "Auditor",
+                "confirmed_replay_id": replay.id,
+            },
+            cookie=cookie,
+        )
+        assert status == 409
+        assert json.loads(body)["error"] == "finding_rejected"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
 def test_server_event_endpoint_forwards_cta(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -639,6 +865,42 @@ def test_run_data_requires_session(tmp_path: Path, monkeypatch: pytest.MonkeyPat
             assert _get_status(url + path) == 403, path
             assert _get_status(url + path, cookie=f"{_cookie_name(url)}=wrong") == 403, path
             assert _get_status(url + path, cookie=cookie) == 200, path
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_report_pdf_requires_review_and_refreshes_after_signing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    run_dir = _make_run(
+        tmp_path, "review-gate", status="completed", end_time="2026-01-01T00:00:00Z"
+    )
+    finding = {
+        "id": "vuln-0001",
+        "title": "Signed finding",
+        "severity": "high",
+        "target": "http://demo.testfire.net",
+        "endpoint": "/login",
+        "method": "POST",
+        "description": "Evidence.",
+    }
+    (run_dir / "vulnerabilities.json").write_text(json.dumps([finding]), encoding="utf-8")
+    _bundle(tmp_path, monkeypatch)
+
+    httpd, url, token = serve(run_dir, open_browser=False)
+    try:
+        cookie = _session_cookie(url, token)
+        assert _get_status(f"{url}/api/report/pdf", cookie=cookie) == 409
+
+        RunReviewStore(run_dir).record_signed(
+            finding=finding, replay_id="replay-1", auditor_name="Auditor"
+        )
+        status, content_type, body = _get(f"{url}/api/report/pdf", cookie=cookie)
+        assert status == 200
+        assert content_type == "application/pdf"
+        assert body.startswith(b"%PDF-")
     finally:
         httpd.shutdown()
         httpd.server_close()

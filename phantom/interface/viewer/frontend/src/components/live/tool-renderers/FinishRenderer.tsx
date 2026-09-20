@@ -25,7 +25,7 @@ export default function FinishRenderer({ args }: ToolRendererProps) {
         <div><span className="text-blue-400/60 text-sm font-semibold">Recommendations</span><div className="mt-1"><TruncatedText text={recommendations} maxLines={25} /></div></div>
       )}
       {!executiveSummary && !methodology && !technicalAnalysis && !recommendations && (
-        <div className="text-[#555] text-xs">Generating final report...</div>
+        <div className="text-[var(--neutral-555)] text-xs">Generating final report...</div>
       )}
     </div>
   );

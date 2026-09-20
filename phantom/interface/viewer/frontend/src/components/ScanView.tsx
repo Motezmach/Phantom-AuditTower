@@ -173,8 +173,8 @@ export default function ScanView({ info, onOpenTargets, onOpenRun }: ScanViewPro
     <div className="space-y-7">
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-300">Phantom scanner</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">Start an assessment</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#888]">
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">Start an assessment</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--neutral-888)]">
           Configure an authorized target, choose the assessment depth, and review the launch before Phantom starts its
           existing agent workflow.
         </p>
@@ -211,12 +211,12 @@ export default function ScanView({ info, onOpenTargets, onOpenRun }: ScanViewPro
         />
       )}
 
-      <div className="flex items-center justify-between gap-3 border-t border-[#222] pt-5">
+      <div className="flex items-center justify-between gap-3 border-t border-[var(--neutral-222)] pt-5">
         <button
           type="button"
           onClick={() => setStep((current) => (current === 1 ? current : ((current - 1) as WizardStep)))}
           disabled={step === 1 || busy}
-          className="dashboard-button inline-flex items-center gap-2 rounded-lg border border-[#333] px-3.5 py-2.5 text-sm font-medium text-[#aaa] transition-all hover:border-[#555] hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+          className="dashboard-button inline-flex items-center gap-2 rounded-lg border border-[var(--neutral-333)] px-3.5 py-2.5 text-sm font-medium text-[var(--neutral-aaa)] transition-all hover:border-[var(--neutral-555)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back
         </button>
@@ -238,7 +238,7 @@ export default function ScanView({ info, onOpenTargets, onOpenRun }: ScanViewPro
 function StepRail({ step }: { step: WizardStep }) {
   const steps = ["Target", "Depth", "Review"];
   return (
-    <div className="grid grid-cols-3 gap-2 rounded-xl border border-[#222] bg-[rgba(255,255,255,0.02)] p-2">
+    <div className="grid grid-cols-3 gap-2 rounded-xl border border-[var(--neutral-222)] bg-[rgb(var(--contrast-rgb)/0.02)] p-2">
       {steps.map((label, index) => {
         const number = index + 1;
         const complete = number < step;
@@ -247,7 +247,7 @@ function StepRail({ step }: { step: WizardStep }) {
           <div
             key={label}
             className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
-              current ? "bg-white/[0.08] text-white" : complete ? "text-blue-300" : "text-[#666]"
+              current ? "bg-foreground/[0.08] text-foreground" : complete ? "text-blue-300" : "text-[var(--neutral-666)]"
             }`}
           >
             <span
@@ -256,7 +256,7 @@ function StepRail({ step }: { step: WizardStep }) {
                   ? "border-blue-300 bg-blue-500/20 text-blue-200"
                   : complete
                     ? "border-blue-400/50 bg-blue-500/10 text-blue-300"
-                    : "border-[#333] text-[#666]"
+                    : "border-[var(--neutral-333)] text-[var(--neutral-666)]"
               }`}
             >
               {complete ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : number}
@@ -285,34 +285,34 @@ function TargetStep({
   onOpenTargets: () => void;
 }) {
   return (
-    <section className="rounded-2xl border border-[#222] bg-[rgba(255,255,255,0.02)] p-5 sm:p-6">
+    <section className="rounded-2xl border border-[var(--neutral-222)] bg-[rgb(var(--contrast-rgb)/0.02)] p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-blue-300">
             <Target className="h-4 w-4" aria-hidden="true" />
             <span className="text-xs font-semibold uppercase tracking-[0.16em]">Step 1 · Scope</span>
           </div>
-          <h2 className="mt-3 text-xl font-semibold text-white">Choose an authorized target</h2>
-          <p className="mt-2 text-sm leading-6 text-[#888]">Only active targets in your Phantom registry can be scanned.</p>
+          <h2 className="mt-3 text-xl font-semibold text-foreground">Choose an authorized target</h2>
+          <p className="mt-2 text-sm leading-6 text-[var(--neutral-888)]">Only active targets in your Phantom registry can be scanned.</p>
         </div>
         <button
           type="button"
           onClick={onOpenTargets}
-          className="dashboard-button inline-flex items-center gap-2 rounded-lg border border-[#333] px-3 py-2 text-sm font-medium text-[#aaa] transition-all hover:border-[#555] hover:text-white"
+          className="dashboard-button inline-flex items-center gap-2 rounded-lg border border-[var(--neutral-333)] px-3 py-2 text-sm font-medium text-[var(--neutral-aaa)] transition-all hover:border-[var(--neutral-555)] hover:text-foreground"
         >
           Manage targets <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       </div>
 
       {loading ? (
-        <div className="mt-6 flex items-center gap-2 text-sm text-[#777]">
+        <div className="mt-6 flex items-center gap-2 text-sm text-[var(--neutral-777)]">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Loading authorized targets…
         </div>
       ) : targets.length === 0 ? (
-        <div className="mt-6 rounded-xl border border-dashed border-[#333] px-5 py-8 text-center">
-          <ShieldCheck className="mx-auto h-6 w-6 text-[#666]" aria-hidden="true" />
-          <p className="mt-3 text-sm font-medium text-white">No active targets yet</p>
-          <p className="mt-1 text-sm text-[#777]">Register the application and its scope before starting an assessment.</p>
+        <div className="mt-6 rounded-xl border border-dashed border-[var(--neutral-333)] px-5 py-8 text-center">
+          <ShieldCheck className="mx-auto h-6 w-6 text-[var(--neutral-666)]" aria-hidden="true" />
+          <p className="mt-3 text-sm font-medium text-foreground">No active targets yet</p>
+          <p className="mt-1 text-sm text-[var(--neutral-777)]">Register the application and its scope before starting an assessment.</p>
           <button
             type="button"
             onClick={onOpenTargets}
@@ -331,22 +331,22 @@ function TargetStep({
               className={`group flex w-full items-start gap-3 rounded-xl border px-4 py-4 text-left transition-all ${
                 selectedId === target.id
                   ? "border-blue-400/70 bg-blue-500/[0.08] shadow-[0_0_28px_rgba(59,130,246,0.08)]"
-                  : "border-[#2b2b2b] bg-black/20 hover:border-[#4a4a4a] hover:bg-white/[0.03]"
+                  : "border-[var(--neutral-2b2b2b)] bg-black/20 hover:border-[var(--neutral-4a4a4a)] hover:bg-foreground/[0.03]"
               }`}
             >
               <span
                 className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border ${
-                  selectedId === target.id ? "border-blue-300 bg-blue-500 text-white" : "border-[#555] text-transparent"
+                  selectedId === target.id ? "border-blue-300 bg-blue-500 text-white" : "border-[var(--neutral-555)] text-transparent"
                 }`}
               >
                 <Check className="h-3 w-3" aria-hidden="true" />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-white">{target.name}</span>
-                <span className="mt-1 block truncate font-mono text-xs text-[#888]">{target.base_url}</span>
+                <span className="block text-sm font-semibold text-foreground">{target.name}</span>
+                <span className="mt-1 block truncate font-mono text-xs text-[var(--neutral-888)]">{target.base_url}</span>
                 <span className="mt-2 flex flex-wrap gap-1.5">
                   {target.scope_hosts.map((host) => (
-                    <span key={host} className="rounded-md border border-white/10 px-2 py-0.5 text-[11px] text-[#777]">
+                    <span key={host} className="rounded-md border border-foreground/10 px-2 py-0.5 text-[11px] text-[var(--neutral-777)]">
                       {host}
                     </span>
                   ))}
@@ -356,7 +356,7 @@ function TargetStep({
                 <span className="flex items-center gap-1.5 text-emerald-300">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Active
                 </span>
-                <span className="text-[#777]">
+                <span className="text-[var(--neutral-777)]">
                   {playbookCounts[target.id] ?? 0} {playbookCounts[target.id] === 1 ? "playbook" : "playbooks"}
                 </span>
               </span>
@@ -370,13 +370,13 @@ function TargetStep({
 
 function DepthStep({ mode, onSelect }: { mode: ScanMode; onSelect: (mode: ScanMode) => void }) {
   return (
-    <section className="rounded-2xl border border-[#222] bg-[rgba(255,255,255,0.02)] p-5 sm:p-6">
+    <section className="rounded-2xl border border-[var(--neutral-222)] bg-[rgb(var(--contrast-rgb)/0.02)] p-5 sm:p-6">
       <div className="flex items-center gap-2 text-blue-300">
         <ScanLine className="h-4 w-4" aria-hidden="true" />
         <span className="text-xs font-semibold uppercase tracking-[0.16em]">Step 2 · Assessment depth</span>
       </div>
-      <h2 className="mt-3 text-xl font-semibold text-white">Choose how Phantom should run</h2>
-      <p className="mt-2 text-sm leading-6 text-[#888]">Both modes use the same engine, sandbox, agents, skills, and reporting path.</p>
+      <h2 className="mt-3 text-xl font-semibold text-foreground">Choose how Phantom should run</h2>
+      <p className="mt-2 text-sm leading-6 text-[var(--neutral-888)]">Both modes use the same engine, sandbox, agents, skills, and reporting path.</p>
 
       <div className="mt-6 grid gap-3 md:grid-cols-2">
         <ModeCard
@@ -426,20 +426,20 @@ function ModeCard({
       className={`group rounded-xl border p-5 text-left transition-all ${
         selected
           ? "border-blue-400/70 bg-blue-500/[0.08] shadow-[0_0_28px_rgba(59,130,246,0.08)]"
-          : "border-[#2b2b2b] bg-black/20 hover:border-[#4a4a4a] hover:bg-white/[0.03]"
+          : "border-[var(--neutral-2b2b2b)] bg-black/20 hover:border-[var(--neutral-4a4a4a)] hover:bg-foreground/[0.03]"
       }`}
     >
       <div className="flex items-start justify-between gap-3">
-        <span className={`rounded-lg border p-2 ${selected ? "border-blue-300/40 bg-blue-500/10 text-blue-200" : "border-[#333] text-[#888]"}`}>
+        <span className={`rounded-lg border p-2 ${selected ? "border-blue-300/40 bg-blue-500/10 text-blue-200" : "border-[var(--neutral-333)] text-[var(--neutral-888)]"}`}>
           {icon}
         </span>
-        <span className={`h-5 w-5 rounded-full border p-0.5 ${selected ? "border-blue-300" : "border-[#555]"}`}>
+        <span className={`h-5 w-5 rounded-full border p-0.5 ${selected ? "border-blue-300" : "border-[var(--neutral-555)]"}`}>
           <span className={`block h-full w-full rounded-full ${selected ? "bg-blue-400" : "bg-transparent"}`} />
         </span>
       </div>
-      <p className="mt-4 text-base font-semibold text-white">{title}</p>
-      <p className="mt-1 text-sm text-[#888]">{detail}</p>
-      <ul className="mt-4 space-y-2 text-xs text-[#777]">
+      <p className="mt-4 text-base font-semibold text-foreground">{title}</p>
+      <p className="mt-1 text-sm text-[var(--neutral-888)]">{detail}</p>
+      <ul className="mt-4 space-y-2 text-xs text-[var(--neutral-777)]">
         {bullets.map((bullet) => (
           <li key={bullet} className="flex items-center gap-2">
             <Check className="h-3.5 w-3.5 text-blue-300" aria-hidden="true" /> {bullet}
@@ -467,13 +467,13 @@ function ReviewStep({
   onStart: () => void;
 }) {
   return (
-    <section className="rounded-2xl border border-[#222] bg-[rgba(255,255,255,0.02)] p-5 sm:p-6">
+    <section className="rounded-2xl border border-[var(--neutral-222)] bg-[rgb(var(--contrast-rgb)/0.02)] p-5 sm:p-6">
       <div className="flex items-center gap-2 text-blue-300">
         <CircleCheck className="h-4 w-4" aria-hidden="true" />
         <span className="text-xs font-semibold uppercase tracking-[0.16em]">Step 3 · Review and launch</span>
       </div>
-      <h2 className="mt-3 text-xl font-semibold text-white">Everything ready?</h2>
-      <p className="mt-2 text-sm leading-6 text-[#888]">Review the scope, then Phantom will hand this request to its existing scan engine.</p>
+      <h2 className="mt-3 text-xl font-semibold text-foreground">Everything ready?</h2>
+      <p className="mt-2 text-sm leading-6 text-[var(--neutral-888)]">Review the scope, then Phantom will hand this request to its existing scan engine.</p>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
         <ReviewItem label="Target" value={target?.name ?? "Not selected"} detail={target?.base_url} />
@@ -504,10 +504,10 @@ function ReviewStep({
 
 function ReviewItem({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
-    <div className="rounded-xl border border-[#2b2b2b] bg-black/20 px-4 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#666]">{label}</p>
-      <p className="mt-2 truncate text-sm font-medium text-white" title={value}>{value}</p>
-      {detail && <p className="mt-1 truncate font-mono text-xs text-[#777]" title={detail}>{detail}</p>}
+    <div className="rounded-xl border border-[var(--neutral-2b2b2b)] bg-black/20 px-4 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--neutral-666)]">{label}</p>
+      <p className="mt-2 truncate text-sm font-medium text-foreground" title={value}>{value}</p>
+      {detail && <p className="mt-1 truncate font-mono text-xs text-[var(--neutral-777)]" title={detail}>{detail}</p>}
     </div>
   );
 }
@@ -562,11 +562,11 @@ function ScanProgress({
     <div className="space-y-7">
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-300">Phantom scanner</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">{title}</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#888]">{message}</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">{title}</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--neutral-888)]">{message}</p>
       </div>
 
-      <section className="rounded-2xl border border-[#222] bg-[rgba(255,255,255,0.02)] p-5 sm:p-6">
+      <section className="rounded-2xl border border-[var(--neutral-222)] bg-[rgb(var(--contrast-rgb)/0.02)] p-5 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3">
             <span className={`mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border ${
@@ -575,11 +575,11 @@ function ScanProgress({
               {active ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> : failed ? <CircleAlert className="h-5 w-5" aria-hidden="true" /> : stopped ? <Square className="h-4 w-4" aria-hidden="true" /> : <CircleCheck className="h-5 w-5" aria-hidden="true" />}
             </span>
             <div className="min-w-0">
-              <p className="truncate text-base font-semibold text-white">{job.target_name}</p>
-              <p className="mt-1 truncate font-mono text-xs text-[#777]">{job.target_url}</p>
+              <p className="truncate text-base font-semibold text-foreground">{job.target_name}</p>
+              <p className="mt-1 truncate font-mono text-xs text-[var(--neutral-777)]">{job.target_url}</p>
             </div>
           </div>
-          <span className="rounded-full border border-white/10 px-2.5 py-1 text-xs font-medium capitalize text-[#aaa]">
+          <span className="rounded-full border border-foreground/10 px-2.5 py-1 text-xs font-medium capitalize text-[var(--neutral-aaa)]">
             {job.scan_mode} · {job.status}
           </span>
         </div>
@@ -588,21 +588,21 @@ function ScanProgress({
           {stages.map((stage, index) => (
             <div key={stage.label} className="relative flex items-center gap-2 sm:block">
               <span className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs ${
-                stage.done ? "border-blue-300/50 bg-blue-500/15 text-blue-200" : "border-[#333] text-[#666]"
+                stage.done ? "border-blue-300/50 bg-blue-500/15 text-blue-200" : "border-[var(--neutral-333)] text-[var(--neutral-666)]"
               }`}>
                 {stage.done ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : index + 1}
               </span>
-              <span className={`ml-2 text-xs sm:ml-0 sm:mt-2 sm:block ${stage.done ? "text-[#ccc]" : "text-[#666]"}`}>{stage.label}</span>
-              {index < stages.length - 1 && <span className="absolute left-8 right-[-0.75rem] top-3 hidden h-px bg-[#2d2d2d] sm:block" />}
+              <span className={`ml-2 text-xs sm:ml-0 sm:mt-2 sm:block ${stage.done ? "text-[var(--neutral-ccc)]" : "text-[var(--neutral-666)]"}`}>{stage.label}</span>
+              {index < stages.length - 1 && <span className="absolute left-8 right-[-0.75rem] top-3 hidden h-px bg-[var(--neutral-2d2d2d)] sm:block" />}
             </div>
           ))}
         </div>
 
         {job.run_name && (
-          <div className="mt-7 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#2b2b2b] bg-black/20 px-4 py-3">
+          <div className="mt-7 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--neutral-2b2b2b)] bg-black/20 px-4 py-3">
             <div>
-              <p className="text-xs text-[#666]">Run workspace</p>
-              <p className="mt-1 font-mono text-sm text-[#aaa]">{job.run_name}</p>
+              <p className="text-xs text-[var(--neutral-666)]">Run workspace</p>
+              <p className="mt-1 font-mono text-sm text-[var(--neutral-aaa)]">{job.run_name}</p>
             </div>
             <button
               type="button"
@@ -634,7 +634,7 @@ function ScanProgress({
         <button
           type="button"
           onClick={onStartAnother}
-          className="dashboard-button inline-flex items-center gap-2 rounded-lg border border-[#333] px-3.5 py-2.5 text-sm font-medium text-[#aaa] transition-all hover:border-[#555] hover:text-white"
+          className="dashboard-button inline-flex items-center gap-2 rounded-lg border border-[var(--neutral-333)] px-3.5 py-2.5 text-sm font-medium text-[var(--neutral-aaa)] transition-all hover:border-[var(--neutral-555)] hover:text-foreground"
         >
           Start another scan <ScanLine className="h-4 w-4" aria-hidden="true" />
         </button>

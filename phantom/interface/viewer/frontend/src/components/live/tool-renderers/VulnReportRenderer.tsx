@@ -35,13 +35,13 @@ export default function VulnReportRenderer({ args, result }: ToolRendererProps) 
     <div className="space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
         <span className={`font-semibold text-sm ${sevColor}`}>{severity.toUpperCase()}</span>
-        {cvss != null && <span className="text-[#888] text-[13px]">CVSS {cvss}</span>}
-        {cve && <span className="text-[#888] font-mono text-[13px]">{cve}</span>}
-        {cwe && <span className="text-[#888] font-mono text-[13px]">{cwe}</span>}
+        {cvss != null && <span className="text-[var(--neutral-888)] text-[13px]">CVSS {cvss}</span>}
+        {cve && <span className="text-[var(--neutral-888)] font-mono text-[13px]">{cve}</span>}
+        {cwe && <span className="text-[var(--neutral-888)] font-mono text-[13px]">{cwe}</span>}
       </div>
-      {title && <div className="text-[15px] text-white/80 font-semibold">{title}</div>}
+      {title && <div className="text-[15px] text-foreground/80 font-semibold">{title}</div>}
       {(target || endpoint) && (
-        <div className="text-[13px] text-[#888] font-mono">{target}{endpoint ? ` ${method} ${endpoint}` : ""}</div>
+        <div className="text-[13px] text-[var(--neutral-888)] font-mono">{target}{endpoint ? ` ${method} ${endpoint}` : ""}</div>
       )}
       {description && <TruncatedText text={description} maxLines={20} />}
       {impact && (

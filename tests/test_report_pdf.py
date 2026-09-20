@@ -10,6 +10,7 @@ import pytest
 from pypdf import PdfReader
 from pypdf.errors import WrongPasswordError
 
+from phantom.core.reviews import RunReviewStore
 from phantom.interface.viewer.report_pdf import (
     build_encrypted_report,
     encrypt_pdf,
@@ -103,3 +104,19 @@ def test_build_encrypted_report(tmp_path: Path) -> None:
     reader = PdfReader(BytesIO(pdf_bytes))
     assert reader.is_encrypted
     assert reader.decrypt(password)
+
+
+def test_generate_report_pdf_excludes_pending_candidates(tmp_path: Path) -> None:
+    run_dir = _make_run(tmp_path, name="reviewed")
+    candidates = json.loads((run_dir / "vulnerabilities.json").read_text(encoding="utf-8"))
+    candidates[0]["id"] = "vuln-0001"
+    candidates[1]["id"] = "vuln-0002"
+    (run_dir / "vulnerabilities.json").write_text(json.dumps(candidates), encoding="utf-8")
+    RunReviewStore(run_dir).record_signed(
+        finding=candidates[0], replay_id="replay-1", auditor_name="Auditor"
+    )
+
+    reader = PdfReader(BytesIO(generate_report_pdf(run_dir)))
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    assert "SQL Injection" in text
+    assert "Informational note" not in text

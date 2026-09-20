@@ -46,11 +46,27 @@ _CACHE_PATH = Path.home() / ".phantom" / "update-check.json"
 _background_thread: threading.Thread | None = None
 
 
+def _telemetry_disabled() -> bool:
+    """True when Phantom is in local-only mode (telemetry off, the default).
+
+    In local mode Phantom makes no outbound pings at all -- including the update
+    check. Opt into ``PHANTOM_TELEMETRY=1`` to re-enable update notifications.
+    """
+    try:
+        from phantom.config import load_settings  # noqa: PLC0415
+
+        return not load_settings().telemetry.enabled
+    except Exception:  # noqa: BLE001 - a settings hiccup must never block startup
+        return False
+
+
 def _is_disabled() -> bool:
-    return bool(os.environ.get("PHANTOM_NO_UPDATE_CHECK")) or any(
+    if bool(os.environ.get("PHANTOM_NO_UPDATE_CHECK")) or any(
         os.environ.get(key)
         for key in ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "JENKINS_URL", "BUILDKITE", "CIRCLECI")
-    )
+    ):
+        return True
+    return _telemetry_disabled()
 
 
 def is_binary_install() -> bool:
@@ -377,7 +393,8 @@ def self_update(console: Console | None = None, version: str | None = None) -> b
         console.print(f"[bold red]Update failed:[/] {e}")
         console.print(
             "[dim]You can reinstall manually with:[/] "
-            "[#60a5fa]curl -sSL https://gitlab.3s.com.tn/internships/audit-tower/-/raw/main/scripts/install.sh | bash[/]"
+            "[#60a5fa]curl -sSL https://gitlab.3s.com.tn/internships/audit-tower"
+            "/-/raw/main/scripts/install.sh | bash[/]"
         )
         return False
 

@@ -53,13 +53,20 @@ Do not use this role to discover new endpoints or perform fresh testing.
    the recipe only for non-HTTP/passive findings, findings that require browser
    execution or unavailable user interaction, or cases with no safe deterministic
    success assertion.
- - For stateful authorization findings, include the complete evidence path: a
+- For stateful authorization findings, include the complete evidence path: a
    disposable test-account bootstrap, the object/action request, and an
    assertion for the unauthorized result or demonstrated state change. For
    token-based APIs, capture the token from the actual response body or header
    with a tested capture pattern before referencing it in a later step. For
    CSRF, preserve the exact cross-origin headers/body used in validation and
    mark any state-changing recipe as `reversible` or `mutating`.
+- Classify replay side effects from the observed behavior, not from the HTTP
+  method alone: use `none` for read-only checks, failed-login checks, and
+  authentication/session establishment that does not change server data; use
+  `reversible` only when the request changes state but the test can be safely
+  undone; use `mutating` when it changes state without a safe rollback. This
+  keeps harmless evidence replays fast while preserving confirmation for
+  genuinely state-changing tests.
 - Never invent a replay recipe from prose, and never embed passwords, cookies,
   API keys, or session tokens in it. Omit `replay_spec` when the request or
   success assertion is not concrete; the finding remains reportable.

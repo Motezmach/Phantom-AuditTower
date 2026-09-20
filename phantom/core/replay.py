@@ -21,11 +21,16 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 
 from phantom.config import load_settings
+from phantom.core.targets import target_urls_match
 from phantom.runtime import session_manager
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 logger = logging.getLogger(__name__)
@@ -296,7 +301,7 @@ def normalize_replay_spec(
             )
         target = _text(raw.get("target"), field_name="replay_spec.target")
         _origin(target)
-        if finding_target and not _same_origin(target, finding_target):
+        if finding_target and not target_urls_match(target, finding_target):
             raise ReplayValidationError(  # noqa: TRY301
                 "replay_spec.target does not match the finding target."
             )
@@ -570,6 +575,54 @@ def _capture_values(
     return values
 
 
+def _classify_transport_error(message: str) -> str:
+    """Bucket a raw transport error string into a coarse, honest reason.
+
+    These are failures to *reach* the target (the request never completed), which
+    must read as ``inconclusive`` -- the finding was not tested -- never as a
+    reproduced/not-reproduced result.
+    """
+    low = (message or "").lower()
+    if "timed out" in low or "timeout" in low:
+        return "timeout"
+    if any(
+        token in low
+        for token in ("unreachable", "refused", "reset", "errno 101", "errno 111", "no route")
+    ):
+        return "unreachable"
+    if any(token in low for token in ("getaddrinfo", "name or service", "nodename", "resolve")):
+        return "dns"
+    return "transport"
+
+
+def _expects_auth_rejection(assertions: list[dict[str, object]]) -> bool:
+    """True when a step deliberately asserts a 401/403 (an auth control being tested)."""
+    for assertion in assertions:
+        if not isinstance(assertion, dict):
+            continue
+        if assertion.get("type") == "status_equals" and assertion.get("value") in (401, 403):
+            return True
+        if assertion.get("type") == "status_in":
+            values = assertion.get("values") or []
+            if isinstance(values, list) and {401, 403} & {v for v in values if isinstance(v, int)}:
+                return True
+    return False
+
+
+def _classify_assertion_failure(
+    status: int, assertions: list[dict[str, object]]
+) -> tuple[str, str]:
+    """Decide whether a failed step is a real not-reproduced or a testing artefact.
+
+    An *unexpected* 401/403 almost always means the replay's captured session or
+    token has expired, not that the vulnerability is fixed. Report that honestly
+    as ``inconclusive`` so remediation is never auto-closed on a stale session.
+    """
+    if status in (401, 403) and not _expects_auth_rejection(assertions):
+        return "inconclusive", "auth_expired"
+    return "not_reproduced", "assertions_failed"
+
+
 @dataclass
 class ReplayJob:
     id: str
@@ -611,6 +664,7 @@ class ReplayManager:
         finding_id: str,
         spec: dict[str, object],
         confirmed: bool = False,
+        on_complete: Callable[[ReplayJob], None] | None = None,
     ) -> ReplayJob:
         side_effect = str(spec.get("side_effect") or "none")
         if side_effect != "none" and not confirmed:
@@ -639,7 +693,7 @@ class ReplayManager:
             self._jobs[replay_id] = job
         threading.Thread(
             target=self._run_job,
-            args=(job, spec),
+            args=(job, spec, on_complete),
             name=f"phantom-{replay_id}",
             daemon=True,
         ).start()
@@ -672,13 +726,106 @@ class ReplayManager:
         except OSError:
             logger.debug("Could not persist replay artifact %s", filename, exc_info=True)
 
-    def _run_job(self, job: ReplayJob, spec: dict[str, object]) -> None:
+    async def _run_runner(
+        self, session: Any, step_config: dict[str, object], *, job: ReplayJob
+    ) -> dict[str, object]:
+        """Run the sandbox HTTP runner once for one request config.
+
+        A failure to *reach* the target is returned as ``{"ok": False, ...}``
+        rather than raised, so the caller can classify it as inconclusive instead
+        of a hard failure.
+        """
+        await session.write(
+            Path("/workspace/phantom_replay_step.json"),
+            io.BytesIO(json.dumps(step_config, ensure_ascii=False).encode("utf-8")),
+        )
+        result = await session.exec(
+            "python3",
+            "/workspace/phantom_replay_runner.py",
+            "/workspace/phantom_replay_step.json",
+            timeout=40,
+            shell=False,
+        )
+        stdout = result.stdout.decode("utf-8", errors="replace").strip()
+        stderr = result.stderr.decode("utf-8", errors="replace").strip()
+        if stderr:
+            self._append(job, f"stderr: {stderr[-4_000:]}")
+        if not stdout:
+            return {"ok": False, "error": stderr[-500:] or "executor produced no output"}
+        try:
+            response = json.loads(stdout.splitlines()[-1])
+        except json.JSONDecodeError:
+            return {"ok": False, "error": "executor returned invalid output"}
+        if not isinstance(response, dict):
+            return {"ok": False, "error": "executor returned invalid output"}
+        return response
+
+    async def _run_step_with_retry(
+        self, session: Any, step_config: dict[str, object], *, job: ReplayJob, attempts: int = 3
+    ) -> dict[str, object]:
+        """Run one request, retrying ONLY transport failures.
+
+        A transport failure means the request never completed, so a retry cannot
+        double-apply a state change -- safe even for side-effecting steps.
+        """
+        response: dict[str, object] = {}
+        for attempt in range(1, attempts + 1):
+            response = await self._run_runner(session, step_config, job=job)
+            if response.get("ok") is True:
+                return response
+            if attempt < attempts:
+                kind = _classify_transport_error(str(response.get("error") or ""))
+                self._append(
+                    job, f"    transport issue ({kind}); retrying ({attempt}/{attempts - 1})…"
+                )
+                await asyncio.sleep(min(2 * attempt, 5))
+        return response
+
+    async def _probe_target(
+        self, session: Any, target: str, *, job: ReplayJob
+    ) -> tuple[bool, str]:
+        """Pre-flight reachability check.
+
+        Any HTTP response (even 4xx/5xx) means the target is up; only a transport
+        failure means unreachable. Uses a throwaway cookie jar so it never
+        contaminates the replay's own session.
+        """
+        probe_config: dict[str, object] = {
+            "url": target.rstrip("/") + "/",
+            "method": "GET",
+            "headers": {},
+            "body": None,
+            "body_type": "text",
+            "follow_redirects": True,
+            "cookie_file": "",
+            "timeout": 15,
+        }
+        response = await self._run_step_with_retry(session, probe_config, job=job, attempts=2)
+        if response.get("ok") is True:
+            return True, f"HTTP {response.get('status')}"
+        return False, str(response.get("error") or "unreachable")
+
+    def _run_job(
+        self,
+        job: ReplayJob,
+        spec: dict[str, object],
+        on_complete: Callable[[ReplayJob], None] | None = None,
+    ) -> None:
         try:
             asyncio.run(self._execute(job, spec))
         except Exception as exc:
             logger.exception("Replay %s failed", job.id)
             self._append(job, f"Replay failed: {type(exc).__name__}: {exc}")
             self._set(job, status="failed", phase="Replay failed", error=str(exc), ended_at=_now())
+        # The job is now terminal; notify the caller (e.g. the dashboard records
+        # a Playbook retest outcome). Guarded so a hook error never leaks out of
+        # this daemon thread.
+        if on_complete is not None:
+            try:
+                on_complete(job)
+            except Exception:
+                # A completion hook must never crash the replay daemon thread.
+                logger.exception("Replay %s on_complete hook failed", job.id)
 
     async def _execute(  # noqa: PLR0912, PLR0915
         self, job: ReplayJob, spec: dict[str, object]
@@ -704,6 +851,26 @@ class ReplayManager:
             captures: dict[str, str] = {}
             completed_steps = 0
             steps = spec.get("steps") or []
+            # Pre-flight: a dead or unreachable target must read as inconclusive,
+            # never as "finding fixed" / not_reproduced.
+            preflight_target = str(spec.get("target") or "")
+            if preflight_target:
+                reachable, detail = await self._probe_target(session, preflight_target, job=job)
+                if not reachable:
+                    self._append(job, f"Target not reachable: {detail}")
+                    self._set(
+                        job,
+                        status="inconclusive",
+                        phase="Target unreachable — replay not run",
+                        result={
+                            "confirmed": False,
+                            "reason": "target_unreachable",
+                            "detail": detail,
+                        },
+                        ended_at=_now(),
+                    )
+                    return
+                self._append(job, f"Target reachable ({detail}); running replay steps.")
             for index, raw_step in enumerate(steps):
                 if not isinstance(raw_step, dict):
                     raise ReplayValidationError(f"steps[{index}] is invalid at execution time.")
@@ -731,33 +898,24 @@ class ReplayManager:
                     "cookie_file": "/workspace/phantom_replay_cookies.txt",
                     "timeout": 30,
                 }
-                await session.write(
-                    Path("/workspace/phantom_replay_step.json"),
-                    io.BytesIO(json.dumps(step_config, ensure_ascii=False).encode("utf-8")),
-                )
-                result = await session.exec(
-                    "python3",
-                    "/workspace/phantom_replay_runner.py",
-                    "/workspace/phantom_replay_step.json",
-                    timeout=40,
-                    shell=False,
-                )
-                stdout = result.stdout.decode("utf-8", errors="replace").strip()
-                stderr = result.stderr.decode("utf-8", errors="replace").strip()
-                if stderr:
-                    self._append(job, f"stderr: {stderr[-4_000:]}")
-                if not stdout:
-                    raise ReplayValidationError(f"Step {index + 1} produced no response.")
-                try:
-                    response = json.loads(stdout.splitlines()[-1])
-                except json.JSONDecodeError as exc:
-                    raise ReplayValidationError(
-                        f"Step {index + 1} returned invalid executor output."
-                    ) from exc
-                if not isinstance(response, dict) or response.get("ok") is not True:
-                    raise ReplayValidationError(
-                        str(response.get("error") if isinstance(response, dict) else response)
+                response = await self._run_step_with_retry(session, step_config, job=job)
+                if response.get("ok") is not True:
+                    kind = _classify_transport_error(str(response.get("error") or ""))
+                    detail = str(response.get("error") or "unreachable")
+                    self._append(job, f"    could not reach the target ({kind}): {detail}")
+                    self._set(
+                        job,
+                        status="inconclusive",
+                        phase="Replay could not reach the target",
+                        result={
+                            "confirmed": False,
+                            "reason": f"transport_{kind}",
+                            "detail": detail,
+                            "completed_steps": completed_steps,
+                        },
+                        ended_at=_now(),
                     )
+                    return
                 status = int(response.get("status") or 0)
                 headers = (
                     response.get("headers")
@@ -798,12 +956,27 @@ class ReplayManager:
                 if failures:
                     for failure in failures:
                         self._append(job, f"    {failure}")
+                    outcome, reason = _classify_assertion_failure(
+                        status, [item for item in assertions if isinstance(item, dict)]
+                    )
+                    phase = (
+                        "Session/authentication expired — inconclusive"
+                        if outcome == "inconclusive"
+                        else "Finding not reproduced"
+                    )
+                    if outcome == "inconclusive":
+                        self._append(
+                            job,
+                            "    unexpected 401/403 — the replay session likely expired; "
+                            "re-verify manually rather than treating this as fixed.",
+                        )
                     self._set(
                         job,
-                        status="not_reproduced",
-                        phase="Finding not reproduced",
+                        status=outcome,
+                        phase=phase,
                         result={
                             "confirmed": False,
+                            "reason": reason,
                             "completed_steps": completed_steps + 1,
                             "failures": failures,
                         },

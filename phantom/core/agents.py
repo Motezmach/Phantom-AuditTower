@@ -64,6 +64,9 @@ class AgentCoordinator:
         self._reserve_stopped = False
         self._budget_paused = False
         self._extend_budget: Callable[[], None] | None = None
+        # Operator-requested stop (dashboard "Stop"). A cooperative, coordinator-level
+        # gate mirroring _budget_stopped so the running loop actually honours it.
+        self._scan_stopped = False
 
     def set_snapshot_path(self, path: Path) -> None:
         self._snapshot_path = path
@@ -79,6 +82,17 @@ class AgentCoordinator:
         """Signal a scan-wide budget stop and wake every parked agent so it exits."""
         async with self._lock:
             self._budget_stopped = True
+            for runtime in self.runtimes.values():
+                runtime.wake.set()
+
+    @property
+    def scan_stopped(self) -> bool:
+        return self._scan_stopped
+
+    async def trigger_scan_stop(self) -> None:
+        """Signal an operator-requested scan stop and wake every parked agent so it exits."""
+        async with self._lock:
+            self._scan_stopped = True
             for runtime in self.runtimes.values():
                 runtime.wake.set()
 
@@ -313,7 +327,7 @@ class AgentCoordinator:
                 pending_ready = (
                     self.pending_counts.get(agent_id, 0) > 0 and not runtime.user_wake_required
                 )
-                if self._budget_stopped or reserve_exit or pending_ready:
+                if self._budget_stopped or self._scan_stopped or reserve_exit or pending_ready:
                     return True
                 wake = runtime.wake
                 wake.clear()

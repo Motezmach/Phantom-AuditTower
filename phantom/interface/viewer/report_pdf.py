@@ -32,6 +32,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from phantom.core.reviews import review_snapshot
 from phantom.interface.viewer.transcript import (
     primary_target,
     read_run_summary,
@@ -654,9 +655,15 @@ def _overview_flowables(
 
 
 def generate_report_pdf(run_dir: Path) -> bytes:
-    """Render a branded, full-detail PDF report for the run at ``run_dir``."""
+    """Render a branded PDF containing only reviewed findings.
+
+    The complete candidate list remains available in the Issues view. This
+    boundary is repeated here so direct callers cannot accidentally turn the
+    candidate ledger into a customer-facing report.
+    """
     record = read_run_summary(run_dir)
-    vulns = [v for v in read_vulnerabilities(run_dir) if isinstance(v, dict)]
+    candidates = [v for v in read_vulnerabilities(run_dir) if isinstance(v, dict)]
+    vulns, _ = review_snapshot(run_dir, candidates)
     counts = severity_counts(vulns)
     run_name = str(record.get("run_name") or run_dir.name)
 

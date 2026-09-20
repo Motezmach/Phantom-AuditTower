@@ -48,7 +48,10 @@ def resolve_litellm_model(model: str) -> str | None:
                 if isinstance(model_cost.get(key), dict)
             }
             if len(matches) == 1 or len(prices) == 1:
-                return matches[0]
+                # Prefer the most direct provider (fewest path segments) when several
+                # providers list the model at the same price, e.g. xai/grok-4.5 over
+                # aggregators like openrouter/x-ai/grok-4.5 or perplexity/xai/grok-4.5.
+                return min(matches, key=lambda key: (key.count("/"), key))
         return None  # noqa: TRY300
     except Exception:  # noqa: BLE001
         return None

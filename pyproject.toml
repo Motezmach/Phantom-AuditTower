@@ -244,7 +244,7 @@ ignore = [
 # Stdlib HTTP handler overrides (do_GET/do_POST), the dashboard request router,
 # and lazy imports that avoid a circular dependency with phantom.telemetry /
 # phantom.interface.viewer.report_pdf.
-"phantom/interface/viewer/server.py" = ["N802", "PLC0415", "PLR0912"]
+"phantom/interface/viewer/server.py" = ["N802", "PLC0415", "PLR0911", "PLR0912"]
 # Lazy telemetry import to avoid importing PostHog before the viewer starts.
 "phantom/interface/viewer/cli.py" = ["PLC0415"]
 # Lazy imports inside functions to avoid circular dependency with
@@ -281,6 +281,8 @@ ignore = [
 # a runtime ``Callable`` annotation on ``vulnerability_found_callback``.
 "phantom/report/state.py" = ["TC003", "PLR0912", "PLR0915", "E501", "PERF401", "PLC0415"]
 "phantom/report/usage.py" = ["PLC0415"]
+# Lazy import of litellm keeps the heavy dependency out of module import time.
+"phantom/report/pricing.py" = ["PLC0415"]
 # Lazy import of phantom.config.models avoids a circular dependency between the
 # report pipeline and the config layer.
 "phantom/report/dedupe.py" = ["PLC0415"]

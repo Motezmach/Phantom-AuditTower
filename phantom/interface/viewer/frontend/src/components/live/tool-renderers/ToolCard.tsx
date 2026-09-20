@@ -23,7 +23,7 @@ export function TruncatedText({ text, maxLines = 20 }: { text: string; maxLines?
         <Markdown text={text} />
       </div>
       {needsTruncation && (
-        <button onClick={() => setExpanded(!expanded)} className="text-xs text-[#555] hover:text-[#888] mt-1">
+        <button onClick={() => setExpanded(!expanded)} className="text-xs text-[var(--neutral-555)] hover:text-[var(--neutral-888)] mt-1">
           {expanded ? "Show less" : "Show more"}
         </button>
       )}
@@ -52,7 +52,7 @@ export function CodeBlock({ children, className = "" }: { children: React.ReactN
       {needsTruncation && (
         <button
           onClick={() => setExpanded(!expanded)}
-          className="text-xs text-[#555] hover:text-[#888] mt-0.5"
+          className="text-xs text-[var(--neutral-555)] hover:text-[var(--neutral-888)] mt-0.5"
         >
           {expanded ? "Show less" : "Show more"}
         </button>
@@ -91,7 +91,7 @@ export function SyntaxBlock({ code, language, className = "", collapsible = fals
         <code dangerouslySetInnerHTML={{ __html: highlighted }} />
       </pre>
       {needsTruncation && (
-        <button onClick={() => setExpanded(!expanded)} className="text-xs text-[#555] hover:text-[#888] mt-0.5">
+        <button onClick={() => setExpanded(!expanded)} className="text-xs text-[var(--neutral-555)] hover:text-[var(--neutral-888)] mt-0.5">
           {expanded ? "Show less" : "Show more"}
         </button>
       )}

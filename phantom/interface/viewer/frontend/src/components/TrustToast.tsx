@@ -29,17 +29,17 @@ export function TrustToast({ message }: { message: string }) {
 
   return (
     <div
-      className="fixed bottom-3 left-3 z-[60] max-w-xs rounded-lg bg-[#0a0a0a] p-3 shadow-2xl"
-      style={{ border: "1px solid #2a2a2a" }}
+      className="fixed bottom-3 left-3 z-[60] max-w-xs rounded-lg bg-[var(--neutral-0a0a0a)] p-3 shadow-2xl"
+      style={{ border: "1px solid var(--neutral-2a2a2a)" }}
       role="status"
     >
       <div className="flex gap-2.5">
         <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-400" aria-hidden="true" />
-        <p className="text-xs leading-relaxed text-[#aaa]">{message}</p>
+        <p className="text-xs leading-relaxed text-[var(--neutral-aaa)]">{message}</p>
         <button
           onClick={dismiss}
           aria-label="Dismiss"
-          className="-mr-0.5 -mt-0.5 flex-shrink-0 cursor-pointer rounded p-0.5 text-[#666] transition-colors hover:text-white"
+          className="-mr-0.5 -mt-0.5 flex-shrink-0 cursor-pointer rounded p-0.5 text-[var(--neutral-666)] transition-colors hover:text-foreground"
         >
           <X className="h-3.5 w-3.5" />
         </button>

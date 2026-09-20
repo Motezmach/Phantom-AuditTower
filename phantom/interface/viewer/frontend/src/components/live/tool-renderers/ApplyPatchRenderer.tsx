@@ -76,7 +76,7 @@ function Operation({ op }: { op: PatchOp }) {
     <div>
       <div className="flex items-baseline gap-2">
         <span className="text-sky-400/80 font-semibold text-sm shrink-0">{label}</span>
-        {op.path && <span className="text-[#888] font-mono text-[13px] break-all">{shortPath(op.path)}</span>}
+        {op.path && <span className="text-[var(--neutral-888)] font-mono text-[13px] break-all">{shortPath(op.path)}</span>}
       </div>
       {(op.oldLines.length > 0 || op.newLines.length > 0) && (
         <div className="font-mono text-[13px] leading-relaxed mt-1.5">
@@ -90,7 +90,7 @@ function Operation({ op }: { op: PatchOp }) {
               <span className="select-none text-blue-400/30 mr-1">+</span>{line}
             </div>
           ))}
-          {truncated && <div className="text-[#444] mt-0.5">... {total - DIFF_PREVIEW_LINES} more lines</div>}
+          {truncated && <div className="text-[var(--neutral-444)] mt-0.5">... {total - DIFF_PREVIEW_LINES} more lines</div>}
         </div>
       )}
     </div>

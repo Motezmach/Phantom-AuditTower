@@ -12,7 +12,7 @@ from typing import Any
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 
-class CustomBuildHook(BuildHookInterface[Any]):
+class CustomBuildHook(BuildHookInterface):  # BuildHookInterface[Any] breaks under Python 3.14
     """Compile the Bubble Tea sidecar and ship it inside the wheel.
 
     The sidecar is the only interactive interface, so every wheel is a

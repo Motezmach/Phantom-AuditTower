@@ -26,12 +26,20 @@ We collect only very **basic** usage data including:
 - Vulnerability details, descriptions, or code
 - LLM requests and responses
 
-### How to Opt Out
+### Local-only by default (opt-in)
 
-Telemetry in Phantom is entirely **optional**:
+Telemetry is **off by default**. Phantom runs in local mode out of the box: it
+sends no anonymous analytics, and it skips the PyPI update check as well, so an
+airgapped or on-prem deployment makes no outbound requests other than to your
+configured LLM and the authorized target.
+
+To opt in to anonymous usage analytics (and update notifications):
 
 ```bash
-export PHANTOM_TELEMETRY=0
+export PHANTOM_TELEMETRY=1
 ```
 
-You can set this environment variable before running Phantom to disable **all** telemetry.
+Regardless of this setting, your code, scan targets, vulnerability details, and
+findings are **never** collected. To keep the update check on while leaving
+telemetry off, that isn't supported by design — opting out of telemetry keeps
+Phantom fully local.

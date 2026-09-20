@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from phantom.core.replay import (
     _SANDBOX_REPLAY_RUNNER,
+    _classify_assertion_failure,
+    _classify_transport_error,
     _evaluate_assertions,
+    _expects_auth_rejection,
     normalize_replay_spec,
     render_replay_script,
 )
@@ -139,3 +142,42 @@ def test_sandbox_runner_preserves_cookies_between_replay_steps() -> None:
     assert "MozillaCookieJar" in _SANDBOX_REPLAY_RUNNER
     assert "HTTPCookieProcessor" in _SANDBOX_REPLAY_RUNNER
     assert '"cookie_file"' in _SANDBOX_REPLAY_RUNNER
+
+
+def test_classify_transport_error_buckets_reliability_reasons() -> None:
+    assert _classify_transport_error("URLError: [Errno 101] Network unreachable") == "unreachable"
+    assert _classify_transport_error("ConnectionRefusedError: refused") == "unreachable"
+    assert _classify_transport_error("TimeoutError: timed out") == "timeout"
+    assert _classify_transport_error("URLError: getaddrinfo failed") == "dns"
+    assert _classify_transport_error("something else") == "transport"
+
+
+def test_expects_auth_rejection_detects_intentional_401_403() -> None:
+    assert _expects_auth_rejection([{"type": "status_equals", "value": 401}]) is True
+    assert _expects_auth_rejection([{"type": "status_in", "values": [200, 403]}]) is True
+    assert _expects_auth_rejection([{"type": "status_equals", "value": 200}]) is False
+    assert _expects_auth_rejection([{"type": "body_contains", "value": "x"}]) is False
+
+
+def test_unexpected_auth_failure_is_inconclusive_not_not_reproduced() -> None:
+    # A finding that expected success but got 401/403 -> the replay session likely
+    # expired; that must never be reported as "fixed"/not_reproduced.
+    outcome, reason = _classify_assertion_failure(401, [{"type": "status_equals", "value": 200}])
+    assert outcome == "inconclusive"
+    assert reason == "auth_expired"
+    outcome, reason = _classify_assertion_failure(403, [{"type": "body_contains", "value": "x"}])
+    assert outcome == "inconclusive"
+
+
+def test_expected_auth_rejection_that_fails_is_a_real_not_reproduced() -> None:
+    # The finding asserts a 401 (an auth control); a different result is a genuine
+    # not-reproduced, not a session artefact.
+    outcome, reason = _classify_assertion_failure(401, [{"type": "status_equals", "value": 401}])
+    assert outcome == "not_reproduced"
+    assert reason == "assertions_failed"
+
+
+def test_ordinary_assertion_failure_is_not_reproduced() -> None:
+    outcome, reason = _classify_assertion_failure(200, [{"type": "body_contains", "value": "x"}])
+    assert outcome == "not_reproduced"
+    assert reason == "assertions_failed"

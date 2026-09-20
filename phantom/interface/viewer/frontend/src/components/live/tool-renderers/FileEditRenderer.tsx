@@ -38,7 +38,7 @@ export default function FileEditRenderer({ toolName, args }: ToolRendererProps) 
     <div>
       <div className="flex items-baseline gap-2">
         <span className="text-sky-400/80 font-semibold text-sm shrink-0">{label}</span>
-        {pathDisplay && <span className="text-[#888] font-mono text-[13px] break-all">{pathDisplay}</span>}
+        {pathDisplay && <span className="text-[var(--neutral-888)] font-mono text-[13px] break-all">{pathDisplay}</span>}
       </div>
       {regexDisplay && (
         <div className="text-purple-400/60 font-mono text-[13px] break-all mt-0.5">{regexDisplay}</div>
@@ -56,7 +56,7 @@ export default function FileEditRenderer({ toolName, args }: ToolRendererProps) 
             </div>
           ))}
           {truncated && (
-            <div className="text-[#444] mt-0.5">... {totalLines - DIFF_PREVIEW_LINES} more lines</div>
+            <div className="text-[var(--neutral-444)] mt-0.5">... {totalLines - DIFF_PREVIEW_LINES} more lines</div>
           )}
         </div>
       )}

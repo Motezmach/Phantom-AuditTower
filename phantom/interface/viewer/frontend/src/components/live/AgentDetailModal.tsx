@@ -9,7 +9,7 @@ const STATUS_DOT: Record<string, string> = {
   completed: "bg-blue-400",
   running: "bg-blue-400",
   waiting: "bg-yellow-400",
-  stopped: "bg-[#888]",
+  stopped: "bg-[var(--neutral-888)]",
   crashed: "bg-red-400",
   failed: "bg-red-400",
 };
@@ -123,22 +123,22 @@ export function AgentDetailModal({
       aria-label={`Agent ${shownAgent.name}`}
     >
       <div
-        className="relative flex h-[60vh] w-[calc(100vw-4rem)] max-w-6xl flex-col overflow-hidden rounded-xl border border-[#222] bg-[#0a0a0a] shadow-2xl"
+        className="relative flex h-[60vh] w-[calc(100vw-4rem)] max-w-6xl flex-col overflow-hidden rounded-xl border border-[var(--neutral-222)] bg-[var(--neutral-0a0a0a)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-3 border-b border-[#222] px-5 py-3.5">
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--neutral-222)] px-5 py-3.5">
           <div className="flex min-w-0 items-center gap-2">
             <span
-              className={`h-2 w-2 flex-shrink-0 rounded-full ${STATUS_DOT[shownAgent.status] ?? "bg-[#888]"}`}
+              className={`h-2 w-2 flex-shrink-0 rounded-full ${STATUS_DOT[shownAgent.status] ?? "bg-[var(--neutral-888)]"}`}
             />
-            <span className="truncate text-sm font-semibold text-white">{shownAgent.name}</span>
-            <span className="flex-shrink-0 font-mono text-xs text-[#555]">{shownAgent.id}</span>
+            <span className="truncate text-sm font-semibold text-foreground">{shownAgent.name}</span>
+            <span className="flex-shrink-0 font-mono text-xs text-[var(--neutral-555)]">{shownAgent.id}</span>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex-shrink-0 rounded-md p-1 text-[#888] transition-colors hover:bg-[#1a1a1a] hover:text-white"
+            className="flex-shrink-0 rounded-md p-1 text-[var(--neutral-888)] transition-colors hover:bg-[var(--neutral-1a1a1a)] hover:text-foreground"
           >
             <X className="h-4 w-4" />
           </button>
@@ -151,7 +151,7 @@ export function AgentDetailModal({
         </div>
 
         {steerable && (
-          <div className="border-t border-[#222] px-5 py-3">
+          <div className="border-t border-[var(--neutral-222)] px-5 py-3">
             <ScanPromptComposer
               agents={[shownAgent]}
               fixedAgentId={shownAgent.id}

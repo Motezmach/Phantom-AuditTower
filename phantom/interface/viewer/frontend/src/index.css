@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./theme.css";
 
 :root {
   --font-geist-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
@@ -14,22 +15,22 @@
 
 html,
 body {
-  background: #000000;
-  color: #ffffff;
+  background: var(--neutral-000000);
+  color: var(--neutral-ffffff);
   font-family: var(--font-geist-sans);
 }
 
 /* Thin sidebar scrollbar */
 .scrollbar-thin {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  scrollbar-color: rgb(var(--contrast-rgb)/0.15) transparent;
 }
 .scrollbar-thin::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgb(var(--contrast-rgb)/0.15);
   border-radius: 3px;
 }
 .scrollbar-thin::-webkit-scrollbar-track {
@@ -233,7 +234,7 @@ body {
 .prose-markdown {
   font-size: 14px;
   line-height: 1.7;
-  color: #999;
+  color: var(--neutral-999);
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
@@ -247,7 +248,7 @@ body {
 }
 
 .prose-markdown strong {
-  color: #ccc;
+  color: var(--neutral-ccc);
   font-weight: 600;
 }
 
@@ -256,13 +257,13 @@ body {
 }
 
 .prose-markdown code {
-  background: #0a0a0a;
-  border: 1px solid #111;
+  background: var(--neutral-0a0a0a);
+  border: 1px solid var(--neutral-111);
   border-radius: 4px;
   padding: 0.15em 0.4em;
   font-size: 0.9em;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: #ccc;
+  color: var(--neutral-ccc);
   font-variant-ligatures: none;
 }
 
@@ -319,7 +320,7 @@ body {
 .prose-markdown h4,
 .prose-markdown h5,
 .prose-markdown h6 {
-  color: #ddd;
+  color: var(--neutral-ddd);
   font-weight: 600;
   margin-top: 1em;
   margin-bottom: 0.5em;
@@ -332,15 +333,15 @@ body {
 }
 
 .prose-markdown blockquote {
-  border-left: 3px solid #333;
+  border-left: 3px solid var(--neutral-333);
   padding-left: 1em;
-  color: #777;
+  color: var(--neutral-777);
   margin: 0.75em 0;
 }
 
 .prose-markdown hr {
   border: none;
-  border-top: 1px solid #222;
+  border-top: 1px solid var(--neutral-222);
   margin: 1em 0;
 }
 
@@ -352,14 +353,14 @@ body {
 
 .prose-markdown > table th,
 .prose-markdown > table td {
-  border: 1px solid #333;
+  border: 1px solid var(--neutral-333);
   padding: 0.4em 0.75em;
   text-align: left;
   font-size: 13px;
 }
 
 .prose-markdown > table th {
-  background: #1a1a1a;
-  color: #ccc;
+  background: var(--neutral-1a1a1a);
+  color: var(--neutral-ccc);
   font-weight: 600;
 }

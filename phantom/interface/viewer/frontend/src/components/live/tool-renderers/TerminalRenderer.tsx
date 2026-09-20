@@ -122,7 +122,7 @@ export default function TerminalRenderer({ toolName, args, result }: ToolRendere
       <span className="text-blue-400/80 font-semibold text-sm">{isStdin ? "Terminal input" : "Terminal"}</span>
       {command && <SyntaxBlock code={command} language="bash" collapsible />}
       {error && <CodeBlock className="text-red-400/70">{error}</CodeBlock>}
-      {output && <CodeBlock className="text-[#666]">{output}</CodeBlock>}
+      {output && <CodeBlock className="text-[var(--neutral-666)]">{output}</CodeBlock>}
       {exitCode != null && exitCode !== 0 && (
         <div className="font-mono text-[13px] text-red-400/70 mt-0.5">exit code {exitCode}</div>
       )}

@@ -83,7 +83,7 @@ const CATEGORY_META: Record<ToolCategory, CategoryMeta> = {
   notes: { renderer: NotesRenderer, icon: StickyNote, color: "text-amber-400", match: /note/ },
   skills: { renderer: LoadSkillRenderer, icon: Wrench, color: "text-blue-400" },
   todos: { renderer: TodoRenderer, icon: ListTodo, color: "text-purple-400", match: /todo/ },
-  telemetry: { renderer: FallbackRenderer, icon: Wrench, color: "text-[#555]" },
+  telemetry: { renderer: FallbackRenderer, icon: Wrench, color: "text-[var(--neutral-555)]" },
 };
 
 /**

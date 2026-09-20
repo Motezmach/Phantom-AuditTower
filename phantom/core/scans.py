@@ -171,6 +171,17 @@ class ScanJobStore:
             payload = {"version": 1, "jobs": [item.as_dict() for item in jobs]}
             self._atomic_write_text(self.path, json.dumps(payload, indent=2) + "\n")
 
+    def delete(self, job_id: str) -> bool:
+        """Remove one job from the registry. Returns True if a job was removed."""
+        with self._lock:
+            jobs = self.list()
+            remaining = [job for job in jobs if job.id != job_id]
+            if len(remaining) == len(jobs):
+                return False
+            payload = {"version": 1, "jobs": [item.as_dict() for item in remaining]}
+            self._atomic_write_text(self.path, json.dumps(payload, indent=2) + "\n")
+            return True
+
 
 class DashboardScanManager:
     """Accept dashboard scan requests and run the existing Phantom engine."""
@@ -328,9 +339,16 @@ class DashboardScanManager:
 
     @staticmethod
     async def _stop_coordinator(coordinator: AgentCoordinator) -> None:
+        # Set the cooperative, coordinator-level stop gate FIRST so the running loop
+        # exits between turns/cycles (this survives mark_running and per-cycle streams,
+        # unlike the graceful per-agent cancel below). Setting it before cancelling
+        # closes the mark_running race.
+        await coordinator.trigger_scan_stop()
         parent_of, statuses, _, _ = await coordinator.graph_snapshot()
         roots = [agent_id for agent_id, parent_id in parent_of.items() if parent_id is None]
         if roots:
+            # Retain the graceful after-turn cancel: it stops the in-flight turn fast
+            # and lets the SDK save that turn's session state.
             await coordinator.cancel_descendants_graceful(roots[0])
             return
         for agent_id, status in statuses.items():

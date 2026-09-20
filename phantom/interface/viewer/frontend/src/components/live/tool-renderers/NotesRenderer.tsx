@@ -12,9 +12,9 @@ export default function NotesRenderer({ toolName, args, result }: ToolRendererPr
       <div>
         <div className="flex items-center gap-2">
           <span className="text-amber-400/80 font-semibold text-sm">note</span>
-          <span className="text-[#555] text-[13px]">({category})</span>
+          <span className="text-[var(--neutral-555)] text-[13px]">({category})</span>
         </div>
-        {title && <div className="mt-1.5 text-[#999] text-[13px]">{title}</div>}
+        {title && <div className="mt-1.5 text-[var(--neutral-999)] text-[13px]">{title}</div>}
         {content && <div className="mt-1"><Markdown text={content} /></div>}
       </div>
     );
@@ -30,7 +30,7 @@ export default function NotesRenderer({ toolName, args, result }: ToolRendererPr
     return (
       <div>
         <span className="text-amber-400/80 font-semibold text-sm">note updated</span>
-        {title && <div className="mt-1.5 text-[#999] text-[13px]">{title}</div>}
+        {title && <div className="mt-1.5 text-[var(--neutral-999)] text-[13px]">{title}</div>}
         {content && <div className="mt-1"><Markdown text={content} /></div>}
       </div>
     );
@@ -46,11 +46,11 @@ export default function NotesRenderer({ toolName, args, result }: ToolRendererPr
         <span className="text-amber-400/80 font-semibold text-sm">note read</span>
         {note && (
           <>
-            <div className="mt-1.5 text-[#999] text-[13px]">
+            <div className="mt-1.5 text-[var(--neutral-999)] text-[13px]">
               {note.title ?? "(untitled)"}
-              <span className="text-[#555] ml-1">({note.category ?? "general"})</span>
+              <span className="text-[var(--neutral-555)] ml-1">({note.category ?? "general"})</span>
               {(note.by_you || note.agent_name) && (
-                <span className="text-[#666] ml-1 text-xs">by {note.by_you ? "you" : note.agent_name}</span>
+                <span className="text-[var(--neutral-666)] ml-1 text-xs">by {note.by_you ? "you" : note.agent_name}</span>
               )}
             </div>
             {note.content && <div className="mt-1"><Markdown text={note.content} /></div>}
@@ -74,17 +74,17 @@ export default function NotesRenderer({ toolName, args, result }: ToolRendererPr
           <div className="mt-1.5 space-y-0.5">
             {notes.map((n, i) => (
               <div key={i} className="text-[13px]">
-                <span className="text-[#555] mr-1">-</span>
-                <span className="text-[#999]">{n.title ?? "(untitled)"}</span>
-                <span className="text-[#555] ml-1">({n.category ?? "general"})</span>
+                <span className="text-[var(--neutral-555)] mr-1">-</span>
+                <span className="text-[var(--neutral-999)]">{n.title ?? "(untitled)"}</span>
+                <span className="text-[var(--neutral-555)] ml-1">({n.category ?? "general"})</span>
                 {(n.by_you || n.agent_name) && (
-                  <span className="text-[#666] ml-1 text-xs">by {n.by_you ? "you" : n.agent_name}</span>
+                  <span className="text-[var(--neutral-666)] ml-1 text-xs">by {n.by_you ? "you" : n.agent_name}</span>
                 )}
                 {n.content && <div className="ml-3"><Markdown text={n.content} /></div>}
               </div>
             ))}
           </div>
-        ) : <div className="mt-1 text-[#555] text-xs">No notes</div>}
+        ) : <div className="mt-1 text-[var(--neutral-555)] text-xs">No notes</div>}
       </div>
     );
   }

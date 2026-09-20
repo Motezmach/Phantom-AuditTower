@@ -38,14 +38,17 @@ export function ScanPromptComposer({
   fixedAgentId,
   className,
 }: ScanPromptComposerProps) {
+  const isModal = fixedAgentId != null;
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [expanded, setExpanded] = useState(false);
+  // Inside the agent popup the composer opens directly to its input — the user
+  // opened that dialog specifically to message the agent. The page-level
+  // composer stays collapsed so it doesn't dominate the Agents tab.
+  const [expanded, setExpanded] = useState(isModal);
   const [focused, setFocused] = useState(false);
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
-
-  const isModal = fixedAgentId != null;
 
   // Root = the agent with no parent; fall back to the first agent.
   const rootAgent = useMemo(
@@ -143,17 +146,17 @@ export function ScanPromptComposer({
         type="button"
         onClick={handleExpand}
         className={cn(
-          "mt-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-white/[0.08] bg-[#050505] px-5 py-3 text-left transition-colors duration-300 hover:border-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20",
+          "mt-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-foreground/[0.08] bg-[var(--neutral-050505)] px-5 py-3 text-left transition-colors duration-300 hover:border-foreground/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20",
           className
         )}
         aria-expanded={false}
         aria-label="Expand live prompt composer"
       >
         <div className="flex min-w-0 items-center gap-2">
-          <Sparkles className="h-4 w-4 shrink-0 text-[#666]" />
-          <span className="truncate text-sm font-medium text-white">Guide the agent</span>
+          <Sparkles className="h-4 w-4 shrink-0 text-[var(--neutral-666)]" />
+          <span className="truncate text-sm font-medium text-foreground">Guide the agent</span>
         </div>
-        <ChevronUp className="h-4 w-4 shrink-0 text-[#777]" />
+        <ChevronUp className="h-4 w-4 shrink-0 text-[var(--neutral-777)]" />
       </button>
     );
   }
@@ -161,42 +164,42 @@ export function ScanPromptComposer({
   return (
     <div
       className={cn(
-        "mt-4 rounded-2xl border border-white/[0.08] bg-[#050505] overflow-hidden transition-colors duration-300",
-        focused ? "border-white/[0.18]" : "hover:border-white/[0.12]",
+        "mt-4 rounded-2xl border border-foreground/[0.08] bg-[var(--neutral-050505)] overflow-hidden transition-colors duration-300",
+        focused ? "border-foreground/[0.18]" : "hover:border-foreground/[0.12]",
         className
       )}
     >
-      <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-3">
+      <div className="flex items-center justify-between gap-3 border-b border-foreground/[0.06] px-5 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-[#666]" />
-            <p className="text-sm font-medium text-white">Live prompt</p>
+            <Sparkles className="h-4 w-4 text-[var(--neutral-666)]" />
+            <p className="text-sm font-medium text-foreground">Live prompt</p>
           </div>
-          <p className="mt-0.5 text-xs text-[#777]">Connected</p>
+          <p className="mt-0.5 text-xs text-[var(--neutral-777)]">Connected</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {isModal ? (
-            <div className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 text-xs text-[#aaa]">
-              Target: <span className="text-white">{targetName}</span>
+            <div className="rounded-full border border-foreground/[0.08] bg-foreground/[0.03] px-3 py-1 text-xs text-[var(--neutral-aaa)]">
+              Target: <span className="text-foreground">{targetName}</span>
             </div>
           ) : (
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-[#aaa]">Target:</span>
+              <span className="text-xs text-[var(--neutral-aaa)]">Target:</span>
               <div className="relative">
                 <button
                   type="button"
                   onClick={() => setMenuOpen((o) => !o)}
                   onBlur={() => requestAnimationFrame(() => setMenuOpen(false))}
-                  className="inline-flex h-7 items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 text-xs text-white transition-colors hover:border-white/[0.16] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                  className="inline-flex h-7 items-center gap-1 rounded-full border border-foreground/[0.08] bg-foreground/[0.03] px-3 text-xs text-foreground transition-colors hover:border-foreground/[0.16] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
                   aria-haspopup="listbox"
                   aria-expanded={menuOpen}
                 >
                   <span className="max-w-[140px] truncate">{targetName}</span>
-                  <ChevronDown className="h-3.5 w-3.5 text-[#999]" />
+                  <ChevronDown className="h-3.5 w-3.5 text-[var(--neutral-999)]" />
                 </button>
                 {menuOpen && (
                   <div
-                    className="absolute right-0 z-10 mt-1 min-w-[160px] overflow-hidden rounded-lg border border-[#333] bg-[#0a0a0a] py-1 shadow-xl"
+                    className="absolute right-0 z-10 mt-1 min-w-[160px] overflow-hidden rounded-lg border border-[var(--neutral-333)] bg-[var(--neutral-0a0a0a)] py-1 shadow-xl"
                     role="listbox"
                   >
                     <TargetMenuItem
@@ -226,7 +229,7 @@ export function ScanPromptComposer({
           <button
             type="button"
             onClick={handleCollapse}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[#777] transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[var(--neutral-777)] transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20"
             aria-label="Collapse live prompt composer"
           >
             <ChevronDown className="h-4 w-4" />
@@ -251,12 +254,12 @@ export function ScanPromptComposer({
           placeholder="Send a live prompt to the running pentest…"
           maxLength={4000}
           disabled={sending}
-          className="block w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-6 text-white placeholder:text-[#444] focus:outline-none disabled:opacity-60 max-h-[160px] overflow-y-auto"
+          className="block w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-6 text-foreground placeholder:text-[var(--neutral-444)] focus:outline-none disabled:opacity-60 max-h-[160px] overflow-y-auto"
         />
       </div>
 
       <div className="flex items-center justify-between gap-3 px-4 pb-4">
-        <div className="text-xs text-[#666]">{feedback ?? "Press Enter to send."}</div>
+        <div className="text-xs text-[var(--neutral-666)]">{feedback ?? "Press Enter to send."}</div>
         <button
           type="button"
           onClick={(event) => {
@@ -267,8 +270,8 @@ export function ScanPromptComposer({
           className={cn(
             "inline-flex h-10 min-w-[112px] items-center justify-center gap-2 rounded-full px-4 text-sm font-medium transition-colors",
             sending || empty
-              ? "bg-white/[0.08] text-[#666]"
-              : "bg-white text-black hover:bg-neutral-200"
+              ? "bg-foreground/[0.08] text-[var(--neutral-666)]"
+              : "bg-foreground text-inverse hover:bg-neutral-200"
           )}
         >
           {sending ? (
@@ -303,8 +306,8 @@ function TargetMenuItem({
         onSelect();
       }}
       className={cn(
-        "block w-full truncate px-3 py-1.5 text-left text-xs transition-colors hover:bg-white/[0.06]",
-        active ? "text-white" : "text-[#aaa]"
+        "block w-full truncate px-3 py-1.5 text-left text-xs transition-colors hover:bg-foreground/[0.06]",
+        active ? "text-foreground" : "text-[var(--neutral-aaa)]"
       )}
     >
       {label}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import litellm
@@ -9,12 +10,44 @@ from phantom.report.pricing import resolve_litellm_model
 from phantom.report.usage import LLMUsageLedger
 
 
-def test_resolves_common_bare_model_names() -> None:
+if TYPE_CHECKING:
+    import pytest
+
+
+def test_resolver_contract_with_controlled_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resolver contract, decoupled from litellm's live (and drifting) registry.
+
+    Uses a fixed model_cost so the test asserts *behaviour*, not whichever
+    providers litellm happens to ship for a given model this month.
+    """
+    fake_cost = {
+        "deepseek-v4-flash": {
+            "litellm_provider": "deepseek",
+            "input_cost_per_token": 1e-7,
+            "output_cost_per_token": 2e-7,
+        },
+        # same model, two providers, identical price -> prefer the most direct one
+        "xai/grok-4.5": {"input_cost_per_token": 1e-6, "output_cost_per_token": 2e-6},
+        "openrouter/x-ai/grok-4.5": {"input_cost_per_token": 1e-6, "output_cost_per_token": 2e-6},
+        # same model, two providers, DIFFERENT price -> ambiguous, decline to guess
+        "minimax/MiniMax-M3": {"input_cost_per_token": 3e-7, "output_cost_per_token": 6e-7},
+        "deepinfra/MiniMaxAI/MiniMax-M3": {
+            "input_cost_per_token": 9e-7,
+            "output_cost_per_token": 9e-7,
+        },
+    }
+    monkeypatch.setattr(litellm, "model_cost", fake_cost)
     resolve_litellm_model.cache_clear()
-    assert resolve_litellm_model("deepseek-v4-flash") == "deepseek/deepseek-v4-flash"
-    assert resolve_litellm_model("openai/deepseek-v4-flash") == "deepseek/deepseek-v4-flash"
-    assert resolve_litellm_model("grok-4.5") == "xai/grok-4.5"
-    assert resolve_litellm_model("MiniMax-M3") == "minimax/MiniMax-M3"
+    try:
+        # a bare name that carries its own provider -> provider/name
+        assert resolve_litellm_model("deepseek-v4-flash") == "deepseek/deepseek-v4-flash"
+        assert resolve_litellm_model("openai/deepseek-v4-flash") == "deepseek/deepseek-v4-flash"
+        # several providers at the same price -> the most direct (fewest path segments)
+        assert resolve_litellm_model("grok-4.5") == "xai/grok-4.5"
+        # providers disagree on price -> not safely resolvable
+        assert resolve_litellm_model("MiniMax-M3") is None
+    finally:
+        resolve_litellm_model.cache_clear()
 
 
 def test_resolver_returns_none_for_unresolvable_model() -> None:

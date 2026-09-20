@@ -15,9 +15,22 @@ from phantom.interface import update_check
 def _isolated_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(update_check, "_CACHE_PATH", tmp_path / "update-check.json")
     monkeypatch.setattr(update_check, "_background_thread", None)
+    # Local-only mode disables the update check by default; these tests exercise the
+    # update-check logic, so treat telemetry as enabled unless a test says otherwise.
+    monkeypatch.setattr(update_check, "_telemetry_disabled", lambda: False)
     monkeypatch.delenv("PHANTOM_NO_UPDATE_CHECK", raising=False)
     for key in ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "JENKINS_URL", "BUILDKITE", "CIRCLECI"):
         monkeypatch.delenv(key, raising=False)
+
+
+def test_get_available_update_disabled_when_local_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Local-only mode (telemetry off) suppresses the update check entirely."""
+    update_check._CACHE_PATH.write_text(
+        json.dumps({"latest_version": "9.9.9", "checked_at": time.time()})
+    )
+    monkeypatch.setattr(update_check, "get_version", lambda: "1.0.0")
+    monkeypatch.setattr(update_check, "_telemetry_disabled", lambda: True)
+    assert update_check.get_available_update() is None
 
 
 @pytest.mark.parametrize(

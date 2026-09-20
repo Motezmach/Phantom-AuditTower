@@ -15,6 +15,7 @@ from pygments.lexers.special import TextLexer
 from pygments.util import ClassNotFound
 
 from phantom.core.paths import run_record_path
+from phantom.report.asvs import render_asvs_markdown
 from phantom.utils.atomic import atomic_write_text
 
 
@@ -157,12 +158,41 @@ def render_attack_path_analysis(vulnerability_reports: list[dict[str, Any]]) -> 
     return "\n".join(lines).rstrip() + "\n"
 
 
+def write_asvs(run_dir: Path, coverage: dict[str, Any]) -> None:
+    """Write the ASVS 5.0 coverage statement (machine + human readable)."""
+    _atomic_write_text(
+        run_dir / "asvs.json",
+        json.dumps(coverage, ensure_ascii=False, indent=2, default=str),
+    )
+    _atomic_write_text(run_dir / "asvs.md", render_asvs_markdown(coverage) + "\n")
+
+
 def write_executive_report(
     run_dir: Path,
     final_scan_result: str,
     vulnerability_reports: list[dict[str, Any]] | None = None,
+    asvs_coverage: dict[str, Any] | None = None,
 ) -> None:
     path = run_dir / "penetration_test_report.md"
+    _atomic_write_text(
+        path,
+        render_executive_report(final_scan_result, vulnerability_reports, asvs_coverage),
+    )
+    logger.info("Saved final penetration test report to: %s", path)
+
+
+def render_executive_report(
+    final_scan_result: str,
+    vulnerability_reports: list[dict[str, Any]] | None = None,
+    asvs_coverage: dict[str, Any] | None = None,
+) -> str:
+    """Render a report from the supplied, already-filtered findings.
+
+    ``vulnerability_reports`` is intentionally not filtered here. Callers
+    crossing the report boundary must pass the signed set produced by the
+    review workflow; this renderer keeps Markdown, PDF, and stored reports
+    consistent.
+    """
     sections = {
         "# Executive Summary",
         "# Methodology",
@@ -186,10 +216,20 @@ def write_executive_report(
         f"**Generated:** {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n"
         f"{normalized_result}\n"
     )
-    if vulnerability_reports is not None and "## Attack Path Analysis" not in normalized_result:
-        content += "\n" + render_attack_path_analysis(vulnerability_reports)
-    _atomic_write_text(path, content)
-    logger.info("Saved final penetration test report to: %s", path)
+    if vulnerability_reports is not None:
+        content += "\n## Reviewed Findings\n\n"
+        if vulnerability_reports:
+            content += "\n\n".join(
+                render_vulnerability_md(report) for report in vulnerability_reports
+            )
+            content += "\n"
+        else:
+            content += "No findings were signed for this assessment.\n"
+        if "## Attack Path Analysis" not in normalized_result:
+            content += "\n" + render_attack_path_analysis(vulnerability_reports)
+    if asvs_coverage is not None:
+        content += "\n" + render_asvs_markdown(asvs_coverage)
+    return content
 
 
 def write_attack_paths(run_dir: Path, vulnerability_reports: list[dict[str, Any]]) -> None:
@@ -198,6 +238,53 @@ def write_attack_paths(run_dir: Path, vulnerability_reports: list[dict[str, Any]
         run_dir / "attack_paths.md",
         render_attack_path_analysis(vulnerability_reports),
     )
+
+
+def write_playbook_gate(run_dir: Path, gate: dict[str, Any]) -> None:
+    """Write the Playbook gate audit trail without turning it into a finding.
+
+    Confirmed replays are merged into the run's Issues separately. The other
+    outcomes stay out of Issues, but their reason and replay evidence must
+    remain inspectable for an auditor deciding whether a fix is real.
+    """
+    lines = ["# Phantom Playbook Gate", ""]
+    target_id = str(gate.get("target_id") or "")
+    run_name = str(gate.get("run_name") or run_dir.name)
+    lines.append(f"**Run:** `{run_name}`")
+    if target_id:
+        lines.append(f"**Target ID:** `{target_id}`")
+    lines.append(
+        "**Checked:** "
+        f"{gate.get('total', 0)} · "
+        f"**Reproduced:** {gate.get('reproduced', 0)} · "
+        f"**Not reproduced:** {gate.get('not_reproduced', 0)} · "
+        f"**Inconclusive:** {gate.get('inconclusive', 0)} · "
+        f"**Blocked:** {gate.get('blocked', 0)} · "
+        f"**Failed:** {gate.get('failed', 0)}"
+    )
+    lines.append("")
+
+    results = gate.get("results")
+    if not isinstance(results, list) or not results:
+        lines.append("No Playbooks were saved for this target.")
+    else:
+        lines.extend(["## Results", ""])
+        for index, raw in enumerate(results, start=1):
+            if not isinstance(raw, dict):
+                continue
+            title = str(raw.get("title") or raw.get("playbook_id") or f"Playbook {index}")
+            status = str(raw.get("status") or "inconclusive")
+            reason = str(raw.get("reason") or "No reason was recorded.").replace("\n", " ").strip()
+            lines.append(f"### {title}")
+            lines.append(f"- **Status:** `{status}`")
+            lines.append(f"- **Reason:** {reason}")
+            if raw.get("replay_id"):
+                lines.append(f"- **Replay:** `{raw['replay_id']}`")
+            if raw.get("artifact_path"):
+                lines.append(f"- **Evidence:** `{raw['artifact_path']}`")
+            lines.append("")
+
+    _atomic_write_text(run_dir / "playbook_gate.md", "\n".join(lines).rstrip() + "\n")
 
 
 def write_coverage(run_dir: Path, coverage_items: list[dict[str, Any]]) -> None:
@@ -273,6 +360,47 @@ def write_vulnerabilities(
         )
     logger.info("Updated vulnerability index: %s", csv_path)
     return len(new_reports)
+
+
+def write_reviewed_vulnerabilities(
+    run_dir: Path,
+    vulnerability_reports: list[dict[str, Any]],
+) -> None:
+    """Write the customer-facing finding index from signed findings only.
+
+    ``vulnerabilities.json`` and ``vulnerabilities.csv`` intentionally remain
+    the complete candidate ledger used by the Issues view. These separate
+    names make the export boundary explicit for CI and downstream consumers.
+    """
+    sorted_reports = sorted(
+        vulnerability_reports,
+        key=lambda r: (
+            _SEVERITY_ORDER.get(str(r.get("severity") or "").lower(), 5),
+            str(r.get("timestamp") or ""),
+        ),
+    )
+    _atomic_write_text(
+        run_dir / "reviewed_vulnerabilities.json",
+        json.dumps(sorted_reports, ensure_ascii=False, indent=2, default=str),
+    )
+    csv_buf = io.StringIO()
+    writer = csv.DictWriter(
+        csv_buf,
+        fieldnames=["id", "title", "severity", "timestamp", "file"],
+        lineterminator="\r\n",
+    )
+    writer.writeheader()
+    for report in sorted_reports:
+        writer.writerow(
+            {
+                "id": report.get("id", ""),
+                "title": report.get("title", ""),
+                "severity": str(report.get("severity") or "unknown").upper(),
+                "timestamp": report.get("timestamp", ""),
+                "file": f"vulnerabilities/{report.get('id', 'unknown')}.md",
+            }
+        )
+    _atomic_write_text(run_dir / "reviewed_vulnerabilities.csv", csv_buf.getvalue())
 
 
 def _atomic_write_text(path: Path, payload: str) -> None:

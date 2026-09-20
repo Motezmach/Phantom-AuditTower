@@ -6,6 +6,7 @@ record in a later dashboard phase; this module does not perform network access.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 import threading
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
 MAX_NAME_LENGTH = 100
 MAX_URL_LENGTH = 2_048
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+_HOST_GATEWAY_HOSTNAME = "host.docker.internal"
 
 
 class TargetValidationError(ValueError):
@@ -106,6 +108,64 @@ def normalize_base_url(value: object) -> tuple[str, str]:
     path = parsed.path.rstrip("/")
     normalized = urlunsplit((parsed.scheme.lower(), netloc, path, "", ""))
     return normalized, host
+
+
+def _is_localhost_host(host: str) -> bool:
+    """Return whether *host* identifies the local machine."""
+    cleaned = host.lower().strip("[]")
+    if cleaned in {"localhost", "0.0.0.0", "::1"}:
+        return True
+    try:
+        address = ipaddress.ip_address(cleaned)
+    except ValueError:
+        return False
+    return address.is_loopback
+
+
+def _effective_port(parts: object) -> int | None:
+    """Return an origin's explicit or scheme-default port."""
+    scheme = getattr(parts, "scheme", "").lower()
+    port = getattr(parts, "port", None)
+    return port if port is not None else {"http": 80, "https": 443}.get(scheme)
+
+
+def target_urls_match(candidate_url: object, registered_url: object) -> bool:
+    """Match a finding URL to its registered target origin.
+
+    Dashboard scans run inside Docker.  A registered host-local URL such as
+    ``http://localhost:3000`` is deliberately rewritten to
+    ``http://host.docker.internal:3000`` for the sandbox.  Both URLs still
+    identify the same authorized target, so that implementation detail must
+    not prevent signing or rejecting a finding.  No other hostname aliases
+    are accepted.
+    """
+    try:
+        candidate, _ = normalize_base_url(candidate_url)
+        registered, _ = normalize_base_url(registered_url)
+    except TargetValidationError:
+        return False
+    if candidate.casefold() == registered.casefold():
+        return True
+
+    candidate_parts = urlsplit(candidate)
+    registered_parts = urlsplit(registered)
+    if candidate_parts.scheme != registered_parts.scheme:
+        return False
+    if (candidate_parts.path.rstrip("/") or "/") != (
+        registered_parts.path.rstrip("/") or "/"
+    ):
+        return False
+    if _effective_port(candidate_parts) != _effective_port(registered_parts):
+        return False
+    candidate_host = (candidate_parts.hostname or "").lower().rstrip(".")
+    registered_host = (registered_parts.hostname or "").lower().rstrip(".")
+    return (
+        candidate_host == _HOST_GATEWAY_HOSTNAME
+        and _is_localhost_host(registered_host)
+    ) or (
+        registered_host == _HOST_GATEWAY_HOSTNAME
+        and _is_localhost_host(candidate_host)
+    )
 
 
 def _decode_target(value: object) -> Target:
@@ -202,4 +262,5 @@ __all__ = [
     "TargetStore",
     "TargetValidationError",
     "normalize_base_url",
+    "target_urls_match",
 ]

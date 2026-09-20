@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from phantom.core.replay import TERMINAL_REPLAY_STATUSES, ReplayJob, ReplayManager
@@ -11,7 +12,6 @@ from phantom.core.replay import TERMINAL_REPLAY_STATUSES, ReplayJob, ReplayManag
 
 if TYPE_CHECKING:
     import threading
-    from pathlib import Path
 
     from phantom.core.playbooks import Playbook, PlaybookStore
     from phantom.core.targets import Target
@@ -53,6 +53,7 @@ class PlaybookRunner:
         summary: dict[str, Any] = {
             "enabled": True,
             "target_id": target.id,
+            "run_name": str(getattr(run_dir, "name", "") or ""),
             "total": len(playbooks),
             "executed": 0,
             "reproduced": 0,
@@ -106,11 +107,16 @@ class PlaybookRunner:
                 "Automatic Playbook checks skip state-changing recipes; "
                 "run this replay manually."
             )
-            self._record(playbook.id, status="blocked", reason=reason)
+            self._record(playbook.id, status="blocked", reason=reason, run_name=run_dir.name)
             return {**base, "status": "blocked", "reason": reason}
         if stop_event is not None and stop_event.is_set():
             reason = "Playbook gate stopped before this replay started."
-            self._record(playbook.id, status="inconclusive", reason=reason)
+            self._record(
+                playbook.id,
+                status="inconclusive",
+                reason=reason,
+                run_name=run_dir.name,
+            )
             return {**base, "status": "inconclusive", "reason": reason}
 
         try:
@@ -129,12 +135,15 @@ class PlaybookRunner:
             self._record(playbook.id, status="failed", reason=reason, run_name=run_dir.name)
             return {**base, "status": "failed", "reason": reason}
         else:
+            artifact_path = _artifact_path(final, run_dir)
             result = {
                 **base,
                 "status": status,
                 "reason": reason,
                 "replay_id": final.id,
             }
+            if artifact_path:
+                result["artifact_path"] = artifact_path
             completed_steps = _completed_steps(final)
             if completed_steps is not None:
                 result["completed_steps"] = completed_steps
@@ -145,6 +154,7 @@ class PlaybookRunner:
                 replay_id=final.id,
                 run_name=run_dir.name,
                 completed_steps=completed_steps,
+                artifact_path=artifact_path,
             )
             return result
 
@@ -171,6 +181,7 @@ class PlaybookRunner:
                     script=current.script,
                     result={"confirmed": False},
                     error="The replay exceeded the Playbook gate timeout.",
+                    artifact_dir=current.artifact_dir,
                 )
             current = self.replay_manager.get(job.id) or current
             if stop_event is not None and stop_event.is_set():
@@ -191,6 +202,15 @@ class PlaybookRunner:
             )
         except Exception:
             logger.exception("Could not persist Playbook %s replay result", playbook_id)
+
+
+def _artifact_path(job: ReplayJob, run_dir: Path) -> str | None:
+    if not job.artifact_dir:
+        return None
+    try:
+        return Path(job.artifact_dir).resolve().relative_to(run_dir.resolve()).as_posix()
+    except (OSError, ValueError):
+        return None
 
 
 def _completed_steps(job: ReplayJob) -> int | None:

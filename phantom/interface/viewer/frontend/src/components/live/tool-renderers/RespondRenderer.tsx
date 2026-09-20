@@ -14,7 +14,7 @@ export default function RespondRenderer({ args }: ToolRendererProps) {
   return (
     <div>
       <Markdown text={message} />
-      <div className="mt-1.5 text-[#888] text-[13px]">waiting for your reply</div>
+      <div className="mt-1.5 text-[var(--neutral-888)] text-[13px]">waiting for your reply</div>
     </div>
   );
 }

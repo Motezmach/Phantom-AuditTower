@@ -440,6 +440,12 @@ class TuiController:
                 self.report_state.get_run_dir(),
                 open_browser=True,
                 steer_handler=steer,
+                # Open the SAME audit-platform dashboard as ``phantom serve`` —
+                # focused on this live run (default_run), with sign/reject/
+                # playbooks/review enabled — instead of the legacy single-run
+                # viewer. The TUI owns the scan, so this dashboard gets no scan
+                # manager (target/scan launching is hidden).
+                dashboard_mode=True,
             )
             self._viewer_httpd = httpd
             self.viewer_url = authorized_url(url, token)

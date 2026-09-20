@@ -11,8 +11,10 @@ DATA_DIR_NAME = ".phantom"
 TARGETS_FILENAME = "targets.json"
 SCAN_JOBS_FILENAME = "scans.json"
 PLAYBOOKS_FILENAME = "playbooks.json"
+REJECTIONS_FILENAME = "rejections.json"
 RUNTIME_STATE_DIR_NAME = ".state"
 RUN_RECORD_FILENAME = "run.json"
+RUN_REVIEWS_FILENAME = "reviews.json"
 
 
 def run_dir_for(run_name: str, *, cwd: Path | None = None) -> Path:
@@ -26,6 +28,11 @@ def runtime_state_dir(run_dir: Path) -> Path:
 
 def run_record_path(run_dir: Path) -> Path:
     return run_dir / RUN_RECORD_FILENAME
+
+
+def run_reviews_path(run_dir: Path) -> Path:
+    """Return the per-run human review ledger path."""
+    return runtime_state_dir(run_dir) / RUN_REVIEWS_FILENAME
 
 
 def runs_base_dir(*, cwd: Path | None = None) -> Path:
@@ -60,6 +67,11 @@ def scan_jobs_path(*, cwd: Path | None = None) -> Path:
 def playbooks_path(*, cwd: Path | None = None) -> Path:
     """Return the local Playbook registry path used by the dashboard."""
     return data_dir(cwd=cwd) / PLAYBOOKS_FILENAME
+
+
+def rejections_path(*, cwd: Path | None = None) -> Path:
+    """Return the local Rejection registry path used by the dashboard."""
+    return data_dir(cwd=cwd) / REJECTIONS_FILENAME
 
 
 def latest_run_dir(*, cwd: Path | None = None) -> Path | None:

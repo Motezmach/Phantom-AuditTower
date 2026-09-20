@@ -12,12 +12,12 @@ function ScanStartInfo({ args }: ToolRendererProps) {
     <div>
       <div className="flex items-center gap-2">
         <span className="text-blue-400/80 font-semibold text-sm">Starting penetration test</span>
-        {targetNames.length === 1 && <span className="text-[#888] text-[13px]">on {targetNames[0]}</span>}
+        {targetNames.length === 1 && <span className="text-[var(--neutral-888)] text-[13px]">on {targetNames[0]}</span>}
       </div>
       {targetNames.length > 1 && (
         <div className="mt-1.5 space-y-0.5">
           {targetNames.map((t, i) => (
-            <div key={i} className="text-[13px] text-[#888]"><span className="text-[#555] mr-1">•</span>{t}</div>
+            <div key={i} className="text-[13px] text-[var(--neutral-888)]"><span className="text-[var(--neutral-555)] mr-1">•</span>{t}</div>
           ))}
         </div>
       )}
@@ -32,7 +32,7 @@ function SubagentStartInfo({ args }: ToolRendererProps) {
   return (
     <div>
       <div className="flex items-center gap-2">
-        <span className="text-[#888] text-[13px]">subagent</span>
+        <span className="text-[var(--neutral-888)] text-[13px]">subagent</span>
         <span className="text-purple-400 font-semibold text-sm">{name}</span>
       </div>
       {task && <div className="mt-1.5"><TruncatedText text={task} maxLines={15} /></div>}

@@ -32,7 +32,7 @@ export default function AgentCommsRenderer({ toolName, args }: ToolRendererProps
         {findings && findings.length > 0 && (
           <div className="mt-1.5 space-y-0.5">
             {findings.map((f, i) => (
-              <div key={i} className="text-[13px] text-[#888]"><span className="text-red-400/50 mr-1">•</span>{typeof f === "string" ? f : JSON.stringify(f)}</div>
+              <div key={i} className="text-[13px] text-[var(--neutral-888)]"><span className="text-red-400/50 mr-1">•</span>{typeof f === "string" ? f : JSON.stringify(f)}</div>
             ))}
           </div>
         )}
@@ -47,7 +47,7 @@ export default function AgentCommsRenderer({ toolName, args }: ToolRendererProps
       <div>
         <div className="flex items-center gap-2">
           <span className="text-cyan-400/80 font-semibold text-sm">message</span>
-          {agentId && <span className="text-[#888] text-[13px]">to {agentId.slice(0, 16)}</span>}
+          {agentId && <span className="text-[var(--neutral-888)] text-[13px]">to {agentId.slice(0, 16)}</span>}
         </div>
         {message && <div className="mt-1.5"><TruncatedText text={message} maxLines={20} /></div>}
       </div>
@@ -59,7 +59,7 @@ export default function AgentCommsRenderer({ toolName, args }: ToolRendererProps
     return (
       <div className="flex items-center gap-2">
         <span className="text-cyan-400/80 font-semibold text-sm">waiting</span>
-        {reason && <span className="text-[#888] text-[13px] truncate">{reason}</span>}
+        {reason && <span className="text-[var(--neutral-888)] text-[13px] truncate">{reason}</span>}
       </div>
     );
   }
@@ -72,10 +72,10 @@ export default function AgentCommsRenderer({ toolName, args }: ToolRendererProps
       <div>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-red-400/80 font-semibold text-sm">stopping</span>
-          {targetAgentId && <span className="text-[#888] text-[13px]">{targetAgentId.slice(0, 16)}</span>}
-          {cascade && <span className="text-[#555] text-[13px] italic">+ descendants</span>}
+          {targetAgentId && <span className="text-[var(--neutral-888)] text-[13px]">{targetAgentId.slice(0, 16)}</span>}
+          {cascade && <span className="text-[var(--neutral-555)] text-[13px] italic">+ descendants</span>}
         </div>
-        {reason && <div className="mt-1.5 text-[#888] text-[13px]">{reason}</div>}
+        {reason && <div className="mt-1.5 text-[var(--neutral-888)] text-[13px]">{reason}</div>}
       </div>
     );
   }

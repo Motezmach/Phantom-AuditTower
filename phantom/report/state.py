@@ -15,6 +15,8 @@ from agents.usage import Usage
 from phantom.config import codex
 from phantom.config.loader import load_settings
 from phantom.core.paths import run_dir_for
+from phantom.core.reviews import build_reviewed_scan_results, review_snapshot
+from phantom.report.asvs import build_asvs_coverage
 from phantom.report.coverage import baseline_coverage_items, normalize_coverage_item
 from phantom.report.pricing import resolve_litellm_model
 from phantom.report.sarif import write_sarif
@@ -22,9 +24,12 @@ from phantom.report.usage import LLMUsageLedger
 from phantom.report.writer import (
     _strip_leading_heading,
     read_run_record,
+    write_asvs,
     write_attack_paths,
     write_coverage,
     write_executive_report,
+    write_playbook_gate,
+    write_reviewed_vulnerabilities,
     write_run_record,
     write_vulnerabilities,
 )
@@ -781,17 +786,56 @@ class ReportState:
         try:
             run_dir.mkdir(parents=True, exist_ok=True)
 
-            if self.final_scan_result:
-                write_executive_report(
-                    run_dir,
-                    self.final_scan_result,
-                    self.vulnerability_reports,
-                )
-
             if self.vulnerability_reports:
                 write_vulnerabilities(run_dir, self.vulnerability_reports, self._saved_vuln_ids)
 
-            write_attack_paths(run_dir, self.vulnerability_reports)
+            signed_findings, review = review_snapshot(
+                run_dir,
+                self.vulnerability_reports,
+                # Avoid reading the global libraries on every live artifact
+                # write; include them once the terminal report is materialized
+                # so the persisted summary agrees with the viewer.
+                include_global_libraries=bool(self.final_scan_result),
+            )
+            self.run_record["review_summary"] = dict(review)
+            write_reviewed_vulnerabilities(run_dir, signed_findings)
+
+            # ASVS 5.0 honest coverage (README Idea 4): "failed" comes from the
+            # signed findings (never candidates), "checked"/"not-tested" from the
+            # coverage ledger. Computed here from artefacts, never authored by the engine.
+            asvs_coverage = build_asvs_coverage(signed_findings, self.coverage_items)
+            self.run_record["asvs"] = {
+                "version": asvs_coverage["version"],
+                **asvs_coverage["summary"],
+            }
+
+            if self.final_scan_result:
+                if review["report_ready"]:
+                    reviewed_results = build_reviewed_scan_results(
+                        self.run_record,
+                        signed_findings,
+                        review,
+                    )
+                    write_executive_report(
+                        run_dir,
+                        self._format_final_scan_result(reviewed_results),
+                        signed_findings,
+                        asvs_coverage,
+                    )
+                else:
+                    # Replace any legacy all-candidate report with a safe
+                    # review-pending stub. Candidate evidence remains in the
+                    # Issues view and vulnerabilities.json, never in exports.
+                    write_executive_report(
+                        run_dir,
+                        "# Executive Summary\n\nReport pending human review.",
+                        [],
+                    )
+
+            # Standalone attack paths are customer-facing report artifacts too:
+            # expose only paths belonging to signed or Playbook-confirmed
+            # findings. Candidate paths remain available through each finding.
+            write_attack_paths(run_dir, signed_findings)
 
             if self.playbook_gate is not None:
                 self.run_record["playbook_gate"] = copy.deepcopy(self.playbook_gate)
@@ -799,12 +843,14 @@ class ReportState:
                     run_dir / "playbook_gate.json",
                     json.dumps(self.playbook_gate, ensure_ascii=False, indent=2, default=str),
                 )
+                write_playbook_gate(run_dir, self.playbook_gate)
 
             _atomic_write_text(
                 run_dir / "coverage.json",
                 json.dumps(self.coverage_items, ensure_ascii=False, indent=2, default=str),
             )
             write_coverage(run_dir, self.coverage_items)
+            write_asvs(run_dir, asvs_coverage)
             status_counts: dict[str, int] = {}
             for item in self.coverage_items:
                 status = str(item.get("status") or "planned")
@@ -824,12 +870,32 @@ class ReportState:
             try:
                 write_sarif(
                     run_dir,
-                    self.vulnerability_reports,
+                    signed_findings,
                     tool_version=_phantom_version(),
                     repository_context=self._sarif_repository_context(),
                 )
+                if signed_findings != self.vulnerability_reports:
+                    write_sarif(
+                        run_dir,
+                        self.vulnerability_reports,
+                        tool_version=_phantom_version(),
+                        repository_context=self._sarif_repository_context(),
+                        filename="candidate_findings.sarif",
+                    )
             except Exception:
                 logger.exception("SARIF emit failed (non-fatal; CSV/MD unaffected)")
+
+            # run.json must never persist the model's unreviewed draft narrative.
+            # Mirror the viewer's read-time boundary so the on-disk record equals
+            # what the dashboard serves: the reviewed sections once a report is
+            # ready, and nothing while it is still pending review.
+            if "scan_results" in self.run_record:
+                if review["report_ready"]:
+                    self.run_record["scan_results"] = build_reviewed_scan_results(
+                        self.run_record, signed_findings, review
+                    )
+                else:
+                    self.run_record.pop("scan_results", None)
 
             write_run_record(run_dir, self.run_record)
 

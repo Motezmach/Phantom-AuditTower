@@ -18,11 +18,11 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
     <div
       className={`w-[260px] rounded-lg border px-4 py-3 transition-colors ${
         agent.isSelected || selected
-          ? "border-white/30 bg-[#0a0a0a]"
-          : "border-[#222] bg-black hover:border-[#333]"
+          ? "border-foreground/30 bg-[var(--neutral-0a0a0a)]"
+          : "border-[var(--neutral-222)] bg-canvas hover:border-[var(--neutral-333)]"
       }`}
     >
-      <Handle type="target" position={Position.Top} isConnectable={false} className={`!w-1.5 !h-1.5 !border-0 ${agent.parentId ? "!bg-[#444]" : "!bg-transparent"}`} />
+      <Handle type="target" position={Position.Top} isConnectable={false} className={`!w-1.5 !h-1.5 !border-0 ${agent.parentId ? "!bg-[var(--neutral-444)]" : "!bg-transparent"}`} />
 
       <div className="flex items-center gap-2">
         <span className="relative flex h-2 w-2 shrink-0">
@@ -35,12 +35,12 @@ function AgentNodeComponent({ data, selected }: NodeProps) {
             className={`relative inline-flex h-2 w-2 rounded-full ${STATUS_STYLES[agent.status] ?? "bg-gray-500"}`}
           />
         </span>
-        <span className="text-sm font-semibold text-white leading-snug line-clamp-3">
+        <span className="text-sm font-semibold text-foreground leading-snug line-clamp-3">
           {agent.name}
         </span>
       </div>
 
-      <Handle type="source" position={Position.Bottom} isConnectable={false} className={`!w-1.5 !h-1.5 !border-0 ${agent.children && agent.children.length > 0 ? "!bg-[#444]" : "!bg-transparent"}`} />
+      <Handle type="source" position={Position.Bottom} isConnectable={false} className={`!w-1.5 !h-1.5 !border-0 ${agent.children && agent.children.length > 0 ? "!bg-[var(--neutral-444)]" : "!bg-transparent"}`} />
     </div>
   );
 }

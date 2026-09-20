@@ -59,10 +59,10 @@ export default function PythonRenderer({ args, result }: ToolRendererProps) {
     <div>
       <div className="flex items-center gap-2">
         <span className="text-yellow-400/80 font-semibold text-sm">Python</span>
-        {subtitle && <span className="text-[#888] text-[13px]">{subtitle}</span>}
+        {subtitle && <span className="text-[var(--neutral-888)] text-[13px]">{subtitle}</span>}
       </div>
       {code && <SyntaxBlock code={code} language="python" collapsible />}
-      {output && <CodeBlock className="text-[#666]">{output}</CodeBlock>}
+      {output && <CodeBlock className="text-[var(--neutral-666)]">{output}</CodeBlock>}
     </div>
   );
 }

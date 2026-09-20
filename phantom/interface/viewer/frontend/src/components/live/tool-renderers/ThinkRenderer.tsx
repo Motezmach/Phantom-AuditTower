@@ -10,7 +10,7 @@ export default function ThinkRenderer({ args }: ToolRendererProps) {
   return (
     <div>
       <span className="text-purple-400/80 font-semibold text-sm">Agent is thinking</span>
-      <div className="mt-1.5 italic text-[#888]">
+      <div className="mt-1.5 italic text-[var(--neutral-888)]">
         <TruncatedText text={thought} maxLines={20} />
       </div>
     </div>

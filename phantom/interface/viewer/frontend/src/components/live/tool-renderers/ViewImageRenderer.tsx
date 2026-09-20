@@ -38,13 +38,13 @@ export default function ViewImageRenderer({ args, result }: ToolRendererProps) {
     <div>
       <div className="flex items-baseline gap-2">
         <span className="text-sky-400/80 font-semibold text-sm shrink-0">view image</span>
-        {path && <span className="text-[#888] font-mono text-[13px] break-all">{shortPath(path)}</span>}
+        {path && <span className="text-[var(--neutral-888)] font-mono text-[13px] break-all">{shortPath(path)}</span>}
       </div>
       {imgSrc && (
         <img
           src={imgSrc}
           alt={path || "Tool image output"}
-          className="mt-1.5 max-w-full max-h-96 rounded-lg border border-white/[0.06] object-contain"
+          className="mt-1.5 max-w-full max-h-96 rounded-lg border border-foreground/[0.06] object-contain"
         />
       )}
       {error && <div className="text-red-400/70 text-[13px] mt-1">{error}</div>}

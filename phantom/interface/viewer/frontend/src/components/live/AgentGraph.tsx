@@ -51,7 +51,7 @@ function getLayoutedElements(
         id: edgeId,
         source: agent.parentId,
         target: id,
-        style: { stroke: "#2a2a2a", strokeWidth: 1.5 },
+        style: { stroke: "var(--neutral-2a2a2a)", strokeWidth: 1.5 },
       });
     }
   }
@@ -101,14 +101,14 @@ function SmoothControls() {
       showInteractive={false}
       className="!bg-transparent !border-none !shadow-none"
     >
-      <div className="flex flex-col overflow-hidden rounded-lg border border-[#222]">
-        <button onClick={() => zoomIn({ duration: ZOOM_DURATION })} className="flex items-center justify-center w-7 h-7 bg-[#111] text-white hover:bg-[#2a2a2a] transition-colors" title="Zoom in">
+      <div className="flex flex-col overflow-hidden rounded-lg border border-[var(--neutral-222)]">
+        <button onClick={() => zoomIn({ duration: ZOOM_DURATION })} className="flex items-center justify-center w-7 h-7 bg-[var(--neutral-111)] text-foreground hover:bg-[var(--neutral-2a2a2a)] transition-colors" title="Zoom in">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5"><path d="M12 5v14M5 12h14" /></svg>
         </button>
-        <button onClick={() => zoomOut({ duration: ZOOM_DURATION })} className="flex items-center justify-center w-7 h-7 bg-[#111] text-white hover:bg-[#2a2a2a] border-y border-[#222] transition-colors" title="Zoom out">
+        <button onClick={() => zoomOut({ duration: ZOOM_DURATION })} className="flex items-center justify-center w-7 h-7 bg-[var(--neutral-111)] text-foreground hover:bg-[var(--neutral-2a2a2a)] border-y border-[var(--neutral-222)] transition-colors" title="Zoom out">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5"><path d="M5 12h14" /></svg>
         </button>
-        <button onClick={() => fitView({ padding: 0.3, duration: ZOOM_DURATION })} className="flex items-center justify-center w-7 h-7 bg-[#111] text-white hover:bg-[#2a2a2a] transition-colors" title="Fit view">
+        <button onClick={() => fitView({ padding: 0.3, duration: ZOOM_DURATION })} className="flex items-center justify-center w-7 h-7 bg-[var(--neutral-111)] text-foreground hover:bg-[var(--neutral-2a2a2a)] transition-colors" title="Fit view">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>
         </button>
       </div>
@@ -178,16 +178,16 @@ export default function AgentGraph({
   if (agents.size === 0 && eventsLoaded && eventsEmpty) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center px-4">
-        <div className="w-10 h-10 mb-3 rounded-full bg-[#111] flex items-center justify-center">
+        <div className="w-10 h-10 mb-3 rounded-full bg-[var(--neutral-111)] flex items-center justify-center">
           {scanCompleted ? (
-            <svg className="w-5 h-5 text-[#444]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <svg className="w-5 h-5 text-[var(--neutral-444)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25a2.25 2.25 0 0 1-2.25-2.25v-2.25Z" />
             </svg>
           ) : (
             <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
           )}
         </div>
-        <p className="text-sm text-[#555]">
+        <p className="text-sm text-[var(--neutral-555)]">
           {scanCompleted
             ? "Agent trace data is not available for this pentest"
             : "Waiting for agent data\u2026"}
@@ -229,9 +229,9 @@ export default function AgentGraph({
       minZoom={0.15}
       maxZoom={1.5}
       proOptions={{ hideAttribution: true }}
-      className="bg-black"
+      className="bg-canvas"
     >
-      <Background color="#111" gap={20} />
+      <Background color="var(--neutral-111)" gap={20} />
       <CenterOnRoot nodes={nodes} />
       <SmoothControls />
       <MiniMap
@@ -241,11 +241,11 @@ export default function AgentGraph({
           if (status === "running") return "#3b82f6";
           if (status === "completed") return "#3b82f6";
           if (status === "failed" || status === "error") return "#ef4444";
-          return "#555";
+          return "var(--neutral-555)";
         }}
-        maskColor="rgba(0,0,0,0.8)"
+        maskColor="var(--graph-mask)"
         style={{ width: 80, height: 50 }}
-        className="!bg-[#0a0a0a] !border-[#222]"
+        className="!bg-[var(--neutral-0a0a0a)] !border-[var(--neutral-222)]"
       />
     </ReactFlow>
       </div>

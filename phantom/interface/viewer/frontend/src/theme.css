@@ -1,0 +1,166 @@
+/* Shared neutral palette. Original dark values are preserved; light mode
+   uses cool white surfaces and slate text. Severity colors stay semantic. */
+:root {
+  color-scheme: dark;
+  --canvas: #000;
+  --foreground: #fff;
+  --inverse: #000;
+  --contrast-rgb: 255 255 255;
+  --graph-mask: rgba(0,0,0,0.8);
+  --neutral-000000: #000000;
+  --neutral-050505: #050505;
+  --neutral-0a0a0a: #0a0a0a;
+  --neutral-0b0b0b: #0b0b0b;
+  --neutral-111: #111;
+  --neutral-191919: #191919;
+  --neutral-1a1a1a: #1a1a1a;
+  --neutral-1c1c1c: #1c1c1c;
+  --neutral-1e1e1e: #1e1e1e;
+  --neutral-222: #222;
+  --neutral-242424: #242424;
+  --neutral-252525: #252525;
+  --neutral-262626: #262626;
+  --neutral-2a2a2a: #2a2a2a;
+  --neutral-2b2b2b: #2b2b2b;
+  --neutral-2d2d2d: #2d2d2d;
+  --neutral-333: #333;
+  --neutral-3a3a3a: #3a3a3a;
+  --neutral-444: #444;
+  --neutral-4a4a4a: #4a4a4a;
+  --neutral-4d4d4d: #4d4d4d;
+  --neutral-555: #555;
+  --neutral-666: #666;
+  --neutral-6f6f6f: #6f6f6f;
+  --neutral-777: #777;
+  --neutral-888: #888;
+  --neutral-8a8a8a: #8a8a8a;
+  --neutral-999: #999;
+  --neutral-9a9a9a: #9a9a9a;
+  --neutral-aaa: #aaa;
+  --neutral-bbb: #bbb;
+  --neutral-bcbcbc: #bcbcbc;
+  --neutral-c7c7c7: #c7c7c7;
+  --neutral-ccc: #ccc;
+  --neutral-dcdcdc: #dcdcdc;
+  --neutral-ddd: #ddd;
+  --neutral-e8e8e8: #e8e8e8;
+  --neutral-ededed: #ededed;
+  --neutral-ffffff: #ffffff;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --canvas: #f8fafc;
+  --foreground: #172033;
+  --inverse: #fff;
+  --contrast-rgb: 23 32 51;
+  --graph-mask: rgba(248,250,252,0.8);
+  --neutral-000000: #f8fafc;
+  --neutral-050505: #fff;
+  --neutral-0a0a0a: #fff;
+  --neutral-0b0b0b: #fff;
+  --neutral-111: #edf1f6;
+  --neutral-191919: #edf1f6;
+  --neutral-1a1a1a: #edf1f6;
+  --neutral-1c1c1c: #e9eef5;
+  --neutral-1e1e1e: #e9eef5;
+  --neutral-222: #dce3ec;
+  --neutral-242424: #dce3ec;
+  --neutral-252525: #dce3ec;
+  --neutral-262626: #d8e0ea;
+  --neutral-2a2a2a: #cbd5e1;
+  --neutral-2b2b2b: #d8e0ea;
+  --neutral-2d2d2d: #cbd5e1;
+  --neutral-333: #cbd5e1;
+  --neutral-3a3a3a: #b6c2d2;
+  --neutral-444: #a0aec0;
+  --neutral-4a4a4a: #94a3b8;
+  --neutral-4d4d4d: #8493a8;
+  --neutral-555: #64748b;
+  --neutral-666: #64748b;
+  --neutral-6f6f6f: #5b6b80;
+  --neutral-777: #5b6b80;
+  --neutral-888: #526278;
+  --neutral-8a8a8a: #526278;
+  --neutral-999: #475569;
+  --neutral-9a9a9a: #475569;
+  --neutral-aaa: #475569;
+  --neutral-bbb: #334155;
+  --neutral-bcbcbc: #334155;
+  --neutral-c7c7c7: #334155;
+  --neutral-ccc: #334155;
+  --neutral-dcdcdc: #253247;
+  --neutral-ddd: #253247;
+  --neutral-e8e8e8: #26364e;
+  --neutral-ededed: #172033;
+  --neutral-ffffff: #172033;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-foreground: var(--foreground);
+  --color-inverse: var(--inverse);
+}
+
+/* The overlays keep their real black scrim; translucent panel fills adapt. */
+html[data-theme="light"] :is(.bg-black\/20, .bg-black\/30, .bg-black\/40) {
+  background-color: #f1f5f9;
+}
+html[data-theme="light"] aside { background-color: #fff; }
+
+/* Light text accents need deeper shades on white surfaces. */
+html[data-theme="light"] :is(.text-blue-200, .text-blue-300, .text-blue-400) { color: #1d4ed8; }
+html[data-theme="light"] :is(.text-emerald-200, .text-emerald-300, .text-emerald-400, .text-green-400, .text-green-300) { color: #047857; }
+html[data-theme="light"] :is(.text-amber-200, .text-amber-300, .text-amber-400, .text-yellow-400, .text-yellow-300) { color: #946200; }
+html[data-theme="light"] :is(.text-red-200, .text-red-300, .text-red-400) { color: #b91c1c; }
+html[data-theme="light"] :is(.text-orange-300, .text-orange-400) { color: #c2410c; }
+html[data-theme="light"] :is(.text-purple-300, .text-purple-400, .text-violet-300) { color: #7e22ce; }
+html[data-theme="light"] :is(.text-cyan-300, .text-cyan-400) { color: #0e7490; }
+html[data-theme="light"] .dashboard-link { color: #1d4ed8; }
+
+/* Syntax highlighting shares the selected theme, including agent transcripts. */
+html[data-theme="light"] .hljs { background: transparent; color: #334155; }
+html[data-theme="light"] :is(.hljs-keyword, .hljs-selector-tag, .hljs-literal) { color: #a12346; }
+html[data-theme="light"] :is(.hljs-string, .hljs-regexp, .hljs-meta .hljs-string) { color: #075985; }
+html[data-theme="light"] :is(.hljs-title, .hljs-section, .hljs-title.function_) { color: #6d28d9; }
+html[data-theme="light"] :is(.hljs-number, .hljs-attr, .hljs-variable, .hljs-built_in, .hljs-type) { color: #1d4ed8; }
+html[data-theme="light"] :is(.hljs-comment, .hljs-quote) { color: #64748b; }
+html[data-theme="light"] .hljs-addition { color: #166534; background: #dcfce7; }
+html[data-theme="light"] .hljs-deletion { color: #991b1b; background: #fee2e2; }
+
+.theme-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-around;
+  flex-shrink: 0;
+  width: 72px;
+  height: 36px;
+  border: 1px solid var(--neutral-333);
+  border-radius: 999px;
+  background: var(--neutral-0a0a0a);
+  cursor: pointer;
+  color: var(--neutral-777);
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+.theme-toggle::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--neutral-222);
+  transform: translateX(36px);
+  transition: transform 220ms cubic-bezier(.2,.8,.2,1), background-color 180ms ease;
+}
+.theme-toggle[aria-checked="true"]::before { transform: translateX(0); background: #e8efff; }
+.theme-toggle svg { position: relative; width: 15px; height: 15px; }
+.theme-toggle .theme-icon-active { color: var(--foreground); }
+.theme-toggle[aria-checked="true"] .theme-icon-active { color: #1d4ed8; }
+.theme-toggle:hover { border-color: #60a5fa; box-shadow: 0 0 0 3px rgba(59,130,246,.08); }
+.theme-toggle:focus-visible { outline: 2px solid #3b82f6; outline-offset: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle, .theme-toggle::before { transition: none; }
+}

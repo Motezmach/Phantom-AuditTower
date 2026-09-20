@@ -4,10 +4,15 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="./logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
+    <script>
+      try {
+        document.documentElement.dataset.theme = localStorage.getItem("phantom_theme") === "light" ? "light" : "dark";
+      } catch { document.documentElement.dataset.theme = "dark"; }
+    </script>
     <title>Phantom Results</title>
-    <script type="module" crossorigin src="./assets/index-D3v1-9BU.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-eCZDNxE_.css">
+    <script type="module" crossorigin src="./assets/index--cUM2XQe.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-wSbpzS1R.css">
   </head>
   <body>
     <div id="root"></div>

@@ -14,7 +14,7 @@ import type { View } from "@/App";
 /**
  * Persistent left rail: a black rail with a right hairline border, an
  * account-switcher-style header, a single ungrouped list of h-9 nav rows (36px
- * icon slot, 14px label, rgba(255,255,255,0.12) active fill), a hairline
+ * icon slot, 14px label, rgb(var(--contrast-rgb)/0.12) active fill), a hairline
  * separator, and a user footer. Drag the right edge to resize; drag past the
  * collapse threshold to hide it, then click the left pull-zone to bring it back.
  */
@@ -36,6 +36,8 @@ interface SidebarProps {
   runCount: number;
   onOpenHistory: () => void;
   dashboardMode: boolean;
+  /** Whether this dashboard can add targets / launch scans (hidden in the in-TUI dashboard). */
+  canManageScans: boolean;
   onOpenDashboard: () => void;
   onOpenOverview: () => void;
   onOpenTargets: () => void;
@@ -63,6 +65,7 @@ export default function Sidebar({
   onOpenHistory,
   dashboardMode,
   onOpenDashboard,
+  canManageScans,
   onOpenOverview,
   onOpenTargets,
   onOpenScan,
@@ -146,7 +149,7 @@ export default function Sidebar({
       {/* Left-edge pull zone: click to bring the rail back when collapsed. */}
       {collapsed && (
         <div
-          className="fixed left-0 top-0 z-40 hidden h-full w-4 cursor-pointer transition-colors hover:bg-[rgba(255,255,255,0.08)] lg:block"
+          className="fixed left-0 top-0 z-40 hidden h-full w-4 cursor-pointer transition-colors hover:bg-[rgb(var(--contrast-rgb)/0.08)] lg:block"
           onClick={expandSidebar}
           title="Expand sidebar"
         />
@@ -154,7 +157,7 @@ export default function Sidebar({
 
       <aside
         className={cn(
-          "sticky top-0 z-20 hidden h-screen flex-shrink-0 flex-col overflow-hidden border-r border-[rgba(255,255,255,0.08)] bg-black lg:flex",
+          "sticky top-0 z-20 hidden h-screen flex-shrink-0 flex-col overflow-hidden border-r border-[rgb(var(--contrast-rgb)/0.08)] bg-canvas lg:flex",
           !isResizing && "transition-[width] duration-200 ease-out"
         )}
         style={{ width: collapsed ? 0 : width }}
@@ -168,11 +171,11 @@ export default function Sidebar({
                   className="flex flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-cyan-500"
                   style={{ width: 20, height: 20 }}
                 >
-                  <span className="text-[10px] font-semibold text-white">P</span>
+                  <span className="text-[10px] font-semibold text-foreground">P</span>
                 </span>
                 <span className="flex flex-1 flex-row items-center gap-2 min-w-0">
-                  <span className="truncate min-w-0 text-[14px] font-medium text-[#ededed]">Phantom</span>
-                  <span className="flex h-5 flex-shrink-0 items-center rounded px-2 text-[11px] font-medium text-[#888] bg-[rgba(255,255,255,0.08)]">
+                  <span className="truncate min-w-0 text-[14px] font-medium text-[var(--neutral-ededed)]">Phantom</span>
+                  <span className="flex h-5 flex-shrink-0 items-center rounded px-2 text-[11px] font-medium text-[var(--neutral-888)] bg-[rgb(var(--contrast-rgb)/0.08)]">
                     Local
                   </span>
                 </span>
@@ -198,7 +201,7 @@ export default function Sidebar({
                 onClick={onOpenOverview}
               />
             )}
-            {dashboardMode && (
+            {dashboardMode && canManageScans && (
               <NavItem
                 icon={<Target className="h-4 w-4" />}
                 label="Targets"
@@ -206,7 +209,7 @@ export default function Sidebar({
                 onClick={onOpenTargets}
               />
             )}
-            {dashboardMode && (
+            {dashboardMode && canManageScans && (
               <NavItem
                 icon={<ScanLine className="h-4 w-4" />}
                 label="Scan"
@@ -250,9 +253,9 @@ export default function Sidebar({
         </nav>
 
         <section className="flex min-w-[160px] flex-col gap-0.5">
-          <div className="flex items-center gap-2 p-2.5 text-[#666]">
+          <div className="flex items-center gap-2 p-2.5 text-[var(--neutral-666)]">
             <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-cyan-500">
-              <span className="text-[9px] font-semibold text-white">P</span>
+              <span className="text-[9px] font-semibold text-foreground">P</span>
             </span>
             <span className="text-[11px]">Local Phantom viewer</span>
           </div>
@@ -265,8 +268,8 @@ export default function Sidebar({
         >
           <div
             className={cn(
-              "absolute right-0 top-0 h-full w-px bg-[rgba(255,255,255,0.08)] transition-all duration-100",
-              isResizing ? "w-0.5 bg-[rgba(255,255,255,0.3)]" : "group-hover:bg-[rgba(255,255,255,0.2)]"
+              "absolute right-0 top-0 h-full w-px bg-[rgb(var(--contrast-rgb)/0.08)] transition-all duration-100",
+              isResizing ? "w-0.5 bg-[rgb(var(--contrast-rgb)/0.3)]" : "group-hover:bg-[rgb(var(--contrast-rgb)/0.2)]"
             )}
           />
         </div>
@@ -294,8 +297,8 @@ function NavItem({ icon, label, active, onClick, count }: NavItemProps) {
       className={cn(
         "group flex h-9 w-full origin-left flex-row items-center rounded-md transition-colors",
         active
-          ? "bg-[rgba(255,255,255,0.12)] text-white"
-          : "text-[#888] hover:bg-[rgba(255,255,255,0.06)] hover:text-[#ededed]"
+          ? "bg-[rgb(var(--contrast-rgb)/0.12)] text-foreground"
+          : "text-[var(--neutral-888)] hover:bg-[rgb(var(--contrast-rgb)/0.06)] hover:text-[var(--neutral-ededed)]"
       )}
     >
       <div className="grid flex-none place-content-center" style={{ width: 36, height: 36 }}>
@@ -303,7 +306,7 @@ function NavItem({ icon, label, active, onClick, count }: NavItemProps) {
       </div>
       <span className="min-w-0 flex-1 truncate text-left text-[14px] font-medium">{label}</span>
       {count != null && (
-        <span className="mr-2 flex-none rounded-full border border-white/10 px-2 py-0.5 text-[10px] tabular-nums leading-none text-[#777]">
+        <span className="mr-2 flex-none rounded-full border border-foreground/10 px-2 py-0.5 text-[10px] tabular-nums leading-none text-[var(--neutral-777)]">
           {count}
         </span>
       )}

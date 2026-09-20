@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from phantom.core.paths import playbooks_path
-from phantom.core.targets import Target, normalize_base_url
+from phantom.core.targets import Target, normalize_base_url, target_urls_match
 from phantom.utils.atomic import atomic_write_text
 
 
@@ -72,7 +72,7 @@ def _json_copy(value: object, *, field: str) -> dict[str, Any]:
     return copied
 
 
-def _finding_fingerprint(target_url: str, finding: dict[str, Any]) -> str:
+def finding_fingerprint(target_url: str, finding: dict[str, Any]) -> str:
     """Stable identity for the same finding across rescans with new IDs."""
     parts = [
         target_url.rstrip("/").casefold(),
@@ -104,6 +104,19 @@ class Playbook:
     last_replay_status: str | None = None
     last_replay_reason: str | None = None
     replay_history: tuple[dict[str, Any], ...] = ()
+    # Id of the confirmed replay the auditor watched reproduce before signing
+    # this finding into the library. ``None`` for legacy records saved before
+    # the signing line existed.
+    confirmed_by_replay_id: str | None = None
+    # Remediation lifecycle for this signed finding: "open" (still exploitable),
+    # "fixed" (a retest could no longer reproduce it), or "reopened" (a later
+    # retest reproduced it again -- a regression). Driven by retests in
+    # ``record_replay``; owner/due_date are set by the analyst.
+    remediation_status: str = "open"
+    owner: str | None = None
+    due_date: str | None = None
+    fixed_at: str | None = None
+    reopened_at: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -126,6 +139,12 @@ class Playbook:
             "last_replay_status": self.last_replay_status,
             "last_replay_reason": self.last_replay_reason,
             "replay_history": [copy.deepcopy(item) for item in self.replay_history],
+            "confirmed_by_replay_id": self.confirmed_by_replay_id,
+            "remediation_status": self.remediation_status,
+            "owner": self.owner,
+            "due_date": self.due_date,
+            "fixed_at": self.fixed_at,
+            "reopened_at": self.reopened_at,
         }
 
 
@@ -158,9 +177,25 @@ def _decode(raw: object) -> Playbook:
         status=str(raw.get("status") or "active"),
         replay_count=max(0, int(raw.get("replay_count") or 0)),
         last_replay_at=str(raw["last_replay_at"]) if raw.get("last_replay_at") else None,
-        last_replay_status=str(raw["last_replay_status"]) if raw.get("last_replay_status") else None,
-        last_replay_reason=str(raw["last_replay_reason"]) if raw.get("last_replay_reason") else None,
+        last_replay_status=(
+            str(raw["last_replay_status"]) if raw.get("last_replay_status") else None
+        ),
+        last_replay_reason=(
+            str(raw["last_replay_reason"]) if raw.get("last_replay_reason") else None
+        ),
         replay_history=tuple(copy.deepcopy(item) for item in history_raw[-MAX_HISTORY:]),
+        confirmed_by_replay_id=(
+            str(raw["confirmed_by_replay_id"]) if raw.get("confirmed_by_replay_id") else None
+        ),
+        remediation_status=(
+            str(raw["remediation_status"])
+            if raw.get("remediation_status") in {"open", "fixed", "reopened"}
+            else "open"
+        ),
+        owner=str(raw["owner"]) if raw.get("owner") else None,
+        due_date=str(raw["due_date"]) if raw.get("due_date") else None,
+        fixed_at=str(raw["fixed_at"]) if raw.get("fixed_at") else None,
+        reopened_at=str(raw["reopened_at"]) if raw.get("reopened_at") else None,
     )
 
 
@@ -193,6 +228,7 @@ class PlaybookStore:
         auditor_name: object,
         source_run_name: object,
         finding: object,
+        confirmed_by_replay_id: object = None,
     ) -> tuple[Playbook, bool]:
         clean_name = _text(name, field="Playbook name", maximum=MAX_NAME_LENGTH)
         clean_auditor = _text(
@@ -202,6 +238,14 @@ class PlaybookStore:
             default="Local auditor",
         )
         clean_run = _text(source_run_name, field="Source run", maximum=200)
+        # The confirming replay id is optional (older callers and legacy
+        # records omit it) but, when present, records which replay the auditor
+        # watched reproduce before signing.
+        clean_replay_id = (
+            _text(confirmed_by_replay_id, field="Confirming replay id", maximum=120)
+            if confirmed_by_replay_id not in (None, "")
+            else None
+        )
         finding_copy = _json_copy(finding, field="finding")
         finding_id = _text(finding_copy.get("id"), field="Finding id", maximum=160)
         title = _text(finding_copy.get("title"), field="Finding title", maximum=500)
@@ -212,7 +256,7 @@ class PlaybookStore:
             raise PlaybookValidationError(
                 "The finding target is not a valid HTTP(S) URL.", code="target_mismatch"
             ) from exc
-        if normalized_finding_target.casefold() != target.base_url.casefold():
+        if not target_urls_match(normalized_finding_target, target.base_url):
             raise PlaybookValidationError(
                 "The finding does not belong to the selected registered target.",
                 code="target_mismatch",
@@ -233,7 +277,7 @@ class PlaybookStore:
                 code="replay_unavailable",
             )
         finding_copy["replay_spec"] = normalized_spec
-        fingerprint = _finding_fingerprint(target.base_url, {**finding_copy, "title": title})
+        fingerprint = finding_fingerprint(target.base_url, {**finding_copy, "title": title})
         with self._lock:
             records = self._read()
             existing = next(
@@ -249,6 +293,28 @@ class PlaybookStore:
                 None,
             )
             if existing is not None:
+                # Legacy Playbooks predate replay-backed signing. A newly
+                # confirmed replay upgrades that record in place so its
+                # history and stable identity are preserved.
+                if clean_replay_id and not existing.confirmed_by_replay_id:
+                    now = _now()
+                    upgraded = replace(
+                        existing,
+                        name=clean_name,
+                        target_name=target.name,
+                        target_url=target.base_url,
+                        auditor_name=clean_auditor,
+                        updated_at=now,
+                        source_run_name=clean_run,
+                        source_finding_id=finding_id,
+                        fingerprint=fingerprint,
+                        finding=finding_copy,
+                        replay_spec=normalized_spec,
+                        confirmed_by_replay_id=clean_replay_id,
+                    )
+                    records = [upgraded if item.id == existing.id else item for item in records]
+                    self._write(records)
+                    return upgraded, True
                 return existing, False
             now = _now()
             record = Playbook(
@@ -265,6 +331,7 @@ class PlaybookStore:
                 fingerprint=fingerprint,
                 finding=finding_copy,
                 replay_spec=normalized_spec,
+                confirmed_by_replay_id=clean_replay_id,
             )
             records.append(record)
             self._write(records)
@@ -289,9 +356,12 @@ class PlaybookStore:
         replay_id: str | None = None,
         run_name: str | None = None,
         completed_steps: int | None = None,
+        artifact_path: str | None = None,
     ) -> Playbook | None:
         if status not in {"confirmed", "not_reproduced", "inconclusive", "blocked", "failed"}:
-            raise PlaybookValidationError("Invalid Playbook replay status.", code="invalid_replay_status")
+            raise PlaybookValidationError(
+                "Invalid Playbook replay status.", code="invalid_replay_status"
+            )
         with self._lock:
             records = self._read()
             now = _now()
@@ -312,6 +382,19 @@ class PlaybookStore:
                     history_item["run_name"] = run_name
                 if completed_steps is not None:
                     history_item["completed_steps"] = completed_steps
+                if artifact_path:
+                    history_item["artifact_path"] = artifact_path
+                # Proof of fixes: a retest that no longer reproduces the saved
+                # attack marks it fixed; one that reproduces it again after it
+                # was fixed reopens it (a regression). Inconclusive/blocked/
+                # failed retests can't conclude anything, so they leave it be.
+                remediation = item.remediation_status
+                fixed_at = item.fixed_at
+                reopened_at = item.reopened_at
+                if status == "not_reproduced" and remediation != "fixed":
+                    remediation, fixed_at = "fixed", now
+                elif status == "confirmed" and remediation == "fixed":
+                    remediation, reopened_at = "reopened", now
                 updated = replace(
                     item,
                     updated_at=now,
@@ -320,7 +403,54 @@ class PlaybookStore:
                     last_replay_status=status,
                     last_replay_reason=reason,
                     replay_history=(*item.replay_history, history_item)[-MAX_HISTORY:],
+                    remediation_status=remediation,
+                    fixed_at=fixed_at,
+                    reopened_at=reopened_at,
                 )
+                output.append(updated)
+            if updated is None:
+                return None
+            self._write(output)
+            return updated
+
+    def set_remediation(
+        self,
+        playbook_id: str,
+        *,
+        owner: object = None,
+        due_date: object = None,
+    ) -> Playbook | None:
+        """Set the analyst-owned remediation metadata (owner and due date).
+
+        The lifecycle status itself (open/fixed/reopened) is driven by retests in
+        :meth:`record_replay`, not set here. Empty values clear the field.
+        """
+
+        def _opt(value: object, *, field: str, maximum: int) -> str | None:
+            if value is None:
+                return None
+            text = str(value).strip()
+            if not text:
+                return None
+            if len(text) > maximum:
+                raise PlaybookValidationError(f"{field} is too long.", code="invalid_remediation")
+            if _CONTROL_CHARS.search(text):
+                raise PlaybookValidationError(
+                    f"{field} contains unsupported control characters.", code="invalid_remediation"
+                )
+            return text
+
+        clean_owner = _opt(owner, field="Owner", maximum=200)
+        clean_due = _opt(due_date, field="Due date", maximum=40)
+        with self._lock:
+            records = self._read()
+            updated: Playbook | None = None
+            output: list[Playbook] = []
+            for item in records:
+                if item.id != playbook_id:
+                    output.append(item)
+                    continue
+                updated = replace(item, updated_at=_now(), owner=clean_owner, due_date=clean_due)
                 output.append(updated)
             if updated is None:
                 return None
@@ -350,4 +480,9 @@ class PlaybookStore:
         atomic_write_text(self.path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
 
 
-__all__ = ["Playbook", "PlaybookStore", "PlaybookValidationError"]
+__all__ = [
+    "Playbook",
+    "PlaybookStore",
+    "PlaybookValidationError",
+    "finding_fingerprint",
+]

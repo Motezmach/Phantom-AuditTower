@@ -126,7 +126,11 @@ class RuntimeSettings(BaseSettings):
 class TelemetrySettings(BaseSettings):
     model_config = _BASE_CONFIG
 
-    enabled: bool = Field(default=True, alias="PHANTOM_TELEMETRY")
+    # Local-only by default: Phantom sends no anonymous analytics unless the
+    # operator opts in with PHANTOM_TELEMETRY=1. Findings, targets, and code are
+    # never sent regardless. Keeping this off by default keeps the tool honest
+    # for airgapped/on-prem deployments where no data may leave the network.
+    enabled: bool = Field(default=False, alias="PHANTOM_TELEMETRY")
 
 
 class IntegrationSettings(BaseSettings):

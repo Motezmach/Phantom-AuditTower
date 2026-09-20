@@ -16,5 +16,5 @@ export function ProviderIcon({ provider, className }: { provider: string; classN
   const cls = className ?? "w-4 h-4";
   if (provider === "gitlab") return <Gitlab className={`${cls} text-orange-400`} />;
   if (provider === "bitbucket") return <BitbucketIcon className={`${cls} text-blue-400`} />;
-  return <Github className={`${cls} text-white`} />;
+  return <Github className={`${cls} text-foreground`} />;
 }

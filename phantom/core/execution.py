@@ -171,7 +171,7 @@ async def _seed_and_prepare_first_input(
     return initial_input
 
 
-async def run_agent_loop(
+async def run_agent_loop(  # noqa: PLR0912
     *,
     agent: Any,
     initial_input: Any,
@@ -199,6 +199,10 @@ async def run_agent_loop(
 
     budget_stopped = coordinator.budget_stopped
     reserve_stopped = coordinator.reserve_stopped
+    # Operator stop: exit gracefully (unlike the budget stop, which raises).
+    if coordinator.scan_stopped:
+        await coordinator.set_status(agent_id, "stopped")
+        return result
     if budget_stopped:
         await coordinator.set_status(agent_id, "stopped")
         raise BudgetExceededError("scan budget reached")
@@ -233,6 +237,10 @@ async def run_agent_loop(
         try:
             woke = await coordinator.wait_for_message(agent_id, timeout=timeout)
         except asyncio.CancelledError:
+            return result
+
+        if coordinator.scan_stopped:
+            await coordinator.set_status(agent_id, "stopped")
             return result
 
         if coordinator.budget_stopped:
@@ -509,6 +517,12 @@ async def _run_until_lifecycle(
     recovery_limit = _INTERACTIVE_TOOL_RECOVERY_LIMIT if interactive else max(1, max_turns)
 
     while True:
+        # Operator stop: exit the cycle loop gracefully between turns/cycles. This is
+        # the check that survives mark_running and fresh-stream-per-cycle.
+        if coordinator.scan_stopped:
+            await coordinator.set_status(agent_id, "stopped")
+            return result
+
         if coordinator.budget_stopped:
             await coordinator.set_status(agent_id, "stopped")
             raise BudgetExceededError("scan budget reached")

@@ -30,17 +30,40 @@ from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 
 from phantom.config import load_settings
 from phantom.core.paths import run_record_path, runs_base_dir
-from phantom.core.playbooks import PlaybookStore, PlaybookValidationError
-from phantom.core.replay import ReplayManager, ReplayValidationError, normalize_replay_spec
-from phantom.core.scans import DashboardScanManager, ScanStartError
-from phantom.core.targets import TargetStore, TargetValidationError, normalize_base_url
-from phantom.interface.viewer import auth
+from phantom.core.playbooks import (
+    PlaybookStore,
+    PlaybookValidationError,
+    finding_fingerprint,
+)
+from phantom.core.rejections import RejectionStore, RejectionValidationError
+from phantom.core.replay import (
+    TERMINAL_REPLAY_STATUSES,
+    ReplayJob,
+    ReplayManager,
+    ReplayValidationError,
+    normalize_replay_spec,
+)
+from phantom.core.reviews import ReviewValidationError, RunReviewStore
+from phantom.core.run_delete import RunDeleteError, delete_run
+from phantom.core.scans import (
+    _ACTIVE_STATUSES,
+    DashboardScanManager,
+    ScanJobStore,
+    ScanStartError,
+)
+from phantom.core.targets import (
+    TargetStore,
+    TargetValidationError,
+    normalize_base_url,
+    target_urls_match,
+)
 from phantom.interface.viewer.transcript import (
     build_run_state,
     primary_target,
     read_report_markdown,
     read_run_summary,
     read_vulnerabilities,
+    refresh_review_artifacts,
     severity_counts,
 )
 
@@ -132,6 +155,29 @@ def resolve_run_dir(
 SESSION_COOKIE_PREFIX = "phantom_viewer_session"
 
 
+def _matches_finding_decision(
+    record: Any,
+    *,
+    target_id: str,
+    target_url: str,
+    run_name: str,
+    finding: dict[str, Any],
+) -> bool:
+    """Match a durable triage decision to the same finding across rescans."""
+    if str(getattr(record, "target_id", "")) != target_id:
+        return False
+    finding_id = str(finding.get("id") or "")
+    if (
+        str(getattr(record, "source_run_name", "")) == run_name
+        and str(getattr(record, "source_finding_id", "")) == finding_id
+    ):
+        return True
+    return str(getattr(record, "fingerprint", "")) == finding_fingerprint(
+        target_url,
+        finding,
+    )
+
+
 class _ViewerState:
     def __init__(
         self,
@@ -139,23 +185,34 @@ class _ViewerState:
         assets_dir: Path,
         steer_handler: Callable[[str, str], bool] | None = None,
         base_dir: Path | None = None,
+        dashboard_mode: bool | None = None,
     ) -> None:
         self.run_dir = run_dir
         self.assets_dir = assets_dir
         # The phantom_runs directory that holds the launched run; used to
         # enumerate and resolve other runs for the history list.
         self.base_dir = base_dir or (run_dir.parent if run_dir is not None else runs_base_dir())
-        self.dashboard_mode = run_dir is None
+        # Dashboard mode turns on the audit-platform UI (targets, playbooks,
+        # sign/reject, review report). It defaults to "on when there is no owned
+        # run" (``phantom serve``); the in-TUI launcher enables it explicitly for
+        # its live run so the TUI dashboard matches ``phantom serve``.
+        self.dashboard_mode = dashboard_mode if dashboard_mode is not None else run_dir is None
         self.target_store = TargetStore()
         self.playbook_store = PlaybookStore()
+        self.rejection_store = RejectionStore()
         self.replay_manager = ReplayManager()
+        # Only ``phantom serve`` (no owned run) launches its own scans. The TUI
+        # already owns an in-process scan, so its dashboard gets the full review
+        # surface without a competing scan manager. Scan endpoints already guard
+        # on ``scan_manager is None``; the UI hides scan launching via the
+        # ``can_manage_scans`` capability below.
         self.scan_manager = (
             DashboardScanManager(
                 target_store=self.target_store,
                 playbook_store=self.playbook_store,
                 replay_manager=self.replay_manager,
             )
-            if self.dashboard_mode
+            if self.dashboard_mode and run_dir is None
             else None
         )
         # Replay jobs are deterministic, sandbox-backed requests started from
@@ -257,11 +314,26 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                         self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
                         return
                     self._handle_start_playbook_replay(path)
+                elif path.startswith("/api/playbooks/") and path.endswith("/remediation"):
+                    if not self._has_session():
+                        self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                        return
+                    self._handle_set_remediation(path)
                 elif path.startswith("/api/playbooks/"):
                     if not self._has_session():
                         self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
                         return
                     self._handle_delete_playbook(path)
+                elif path == "/api/rejections":
+                    if not self._has_session():
+                        self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                        return
+                    self._handle_create_rejection()
+                elif path.startswith("/api/rejections/"):
+                    if not self._has_session():
+                        self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                        return
+                    self._handle_delete_rejection(path)
                 else:
                     self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown endpoint"})
             except BrokenPipeError:
@@ -272,11 +344,20 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "internal error"})
 
         def do_DELETE(self) -> None:
-            path = urlsplit(self.path).path
+            parts = urlsplit(self.path)
+            path = parts.path
             try:
                 if path.startswith("/api/playbooks/") and self._has_session():
                     self._handle_delete_playbook(path)
                 elif path.startswith("/api/playbooks/"):
+                    self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                elif path.startswith("/api/rejections/") and self._has_session():
+                    self._handle_delete_rejection(path)
+                elif path.startswith("/api/rejections/"):
+                    self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                elif path.startswith("/api/runs/") and self._has_session():
+                    self._handle_delete_run(path, parse_qs(parts.query))
+                elif path.startswith("/api/runs/"):
                     self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
                 else:
                     self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown endpoint"})
@@ -326,7 +407,7 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
             self.send_response(HTTPStatus.NO_CONTENT)
             self.end_headers()
 
-        def _handle_api(  # noqa: PLR0911, PLR0915
+        def _handle_api(  # noqa: PLR0915
             self, path: str, query: dict[str, list[str]]
         ) -> None:
             # The cross-run history list (/api/runs) unlocks its entries only for
@@ -420,6 +501,18 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(HTTPStatus.OK, {"playbooks": entries})
                 return
 
+            if path == "/api/rejections":
+                target_id = (query.get("target_id") or [None])[0]
+                try:
+                    entries = [
+                        item.as_dict() for item in state.rejection_store.list(target_id=target_id)
+                    ]
+                except RejectionValidationError as exc:
+                    self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": exc.code})
+                    return
+                self._send_json(HTTPStatus.OK, {"rejections": entries})
+                return
+
             if path.startswith("/api/playbooks/"):
                 playbook_id = unquote(path.removeprefix("/api/playbooks/")).strip("/")
                 if not playbook_id:
@@ -457,11 +550,29 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
             elif path == "/api/vulnerabilities":
                 self._send_json(HTTPStatus.OK, read_vulnerabilities(run_dir))
             elif path == "/api/report":
+                summary = read_run_summary(run_dir)
+                if not summary.get("finished", False):
+                    self._send_json(HTTPStatus.CONFLICT, {"error": "run_not_finished"})
+                    return
+                review = summary.get("review_summary") or {}
+                if not review.get("report_ready", False):
+                    self._send_json(
+                        HTTPStatus.CONFLICT,
+                        {"error": "review_required", "review_summary": review},
+                    )
+                    return
                 self._send_json(HTTPStatus.OK, {"markdown": read_report_markdown(run_dir)})
             elif path == "/api/report/pdf":
                 summary = read_run_summary(run_dir)
                 if not summary.get("finished", False):
                     self._send_json(HTTPStatus.CONFLICT, {"error": "run_not_finished"})
+                    return
+                review = summary.get("review_summary") or {}
+                if not review.get("report_ready", False):
+                    self._send_json(
+                        HTTPStatus.CONFLICT,
+                        {"error": "review_required", "review_summary": review},
+                    )
                     return
 
                 from phantom.interface.viewer.report_pdf import generate_report_pdf
@@ -532,7 +643,7 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 return
             self._send_json(HTTPStatus.ACCEPTED, {"job": job.as_dict()})
 
-        def _handle_start_replay(self) -> None:  # noqa: PLR0911
+        def _handle_start_replay(self) -> None:
             body = self._read_body()
             run_param = body.get("run")
             finding_id = body.get("finding_id")
@@ -594,7 +705,7 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 return
             self._send_json(HTTPStatus.ACCEPTED, {"job": job.as_dict()})
 
-        def _handle_create_playbook(self) -> None:  # noqa: PLR0911
+        def _handle_create_playbook(self) -> None:
             body = self._read_body()
             run_param = body.get("run")
             finding_id = str(body.get("finding_id") or "").strip()
@@ -609,7 +720,11 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown_run"})
                 return
             finding = next(
-                (item for item in read_vulnerabilities(run_dir) if str(item.get("id") or "") == finding_id),
+                (
+                    item
+                    for item in read_vulnerabilities(run_dir)
+                    if str(item.get("id") or "") == finding_id
+                ),
                 None,
             )
             if finding is None:
@@ -617,15 +732,87 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 return
             try:
                 target = self._registered_target_for_finding(finding, body.get("target_id"))
+                confirmed_replay_id = str(body.get("confirmed_replay_id") or "").strip()
+                if not confirmed_replay_id:
+                    self._send_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {
+                            "error": "replay_confirmation_required",
+                            "message": "Sign this finding only after a confirmed replay.",
+                        },
+                    )
+                    return
+                replay = state.replay_manager.get(confirmed_replay_id)
+                if replay is None:
+                    self._send_json(
+                        HTTPStatus.NOT_FOUND,
+                        {
+                            "error": "replay_not_found",
+                            "message": "The confirming replay is no longer available.",
+                        },
+                    )
+                    return
+                if replay.run_name != run_dir.name or replay.finding_id != finding_id:
+                    self._send_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "error": "replay_finding_mismatch",
+                            "message": (
+                                "The confirming replay belongs to a different finding or run."
+                            ),
+                        },
+                    )
+                    return
+                if replay.status != "confirmed" or not (
+                    isinstance(replay.result, dict) and replay.result.get("confirmed") is True
+                ):
+                    self._send_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "error": "replay_not_confirmed",
+                            "message": (
+                                "The finding can be signed only after the replay passes all assertions."
+                            ),
+                        },
+                    )
+                    return
+                rejection = next(
+                    (
+                        item
+                        for item in state.rejection_store.list()
+                        if _matches_finding_decision(
+                            item,
+                            target_id=target.id,
+                            target_url=target.base_url,
+                            run_name=run_dir.name,
+                            finding=finding,
+                        )
+                    ),
+                    None,
+                )
+                if rejection is not None:
+                    self._send_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "error": "finding_rejected",
+                            "message": "Restore the rejection before signing this finding.",
+                        },
+                    )
+                    return
                 entry, created = state.playbook_store.create_from_finding(
                     target=target,
                     name=body.get("name"),
                     auditor_name=body.get("auditor_name"),
                     source_run_name=run_dir.name,
                     finding=finding,
+                    confirmed_by_replay_id=confirmed_replay_id,
                 )
             except (TargetValidationError, PlaybookValidationError) as exc:
-                status = HTTPStatus.CONFLICT if exc.code in {"duplicate_playbook", "target_mismatch"} else HTTPStatus.BAD_REQUEST
+                status = (
+                    HTTPStatus.CONFLICT
+                    if exc.code in {"duplicate_playbook", "target_mismatch"}
+                    else HTTPStatus.BAD_REQUEST
+                )
                 self._send_json(status, {"error": exc.code, "message": str(exc)})
                 return
             if not created:
@@ -638,6 +825,16 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                     },
                 )
                 return
+            try:
+                RunReviewStore(run_dir).record_signed(
+                    finding=finding,
+                    replay_id=confirmed_replay_id,
+                    auditor_name=body.get("auditor_name"),
+                )
+            except ReviewValidationError as exc:
+                self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": exc.code})
+                return
+            refresh_review_artifacts(run_dir)
             self._send_json(HTTPStatus.CREATED, {"playbook": entry.as_dict()})
 
         def _registered_target_for_finding(self, finding: dict[str, Any], target_id: object) -> Any:
@@ -661,7 +858,7 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                     "The finding target is not a valid HTTP(S) URL.", code="target_mismatch"
                 ) from exc
             target = next(
-                (item for item in targets if item.base_url.casefold() == normalized.casefold()),
+                (item for item in targets if target_urls_match(normalized, item.base_url)),
                 None,
             )
             if target is None:
@@ -670,12 +867,88 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
                 )
             return target
 
+        def _handle_delete_run(self, path: str, query: dict[str, list[str]]) -> None:
+            run_name = unquote(path.removeprefix("/api/runs/")).strip("/")
+            if not run_name:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": "run_required"})
+                return
+            # resolve_run_dir rejects traversal and unknown runs (no default fallback).
+            run_dir = resolve_run_dir(state.base_dir, run_name, None)
+            if run_dir is None:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown_run"})
+                return
+            job_store = (
+                state.scan_manager.job_store if state.scan_manager is not None else ScanJobStore()
+            )
+            # Never delete a run that is still preparing/running -- stop it first.
+            active = next(
+                (
+                    job
+                    for job in job_store.list()
+                    if job.run_name == run_name and job.status in _ACTIVE_STATUSES
+                ),
+                None,
+            )
+            if active is not None:
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {"error": "run_running", "message": "Stop the scan before deleting this run."},
+                )
+                return
+            # Informational only: Playbooks/Rejections live in .phantom/ and are NEVER
+            # deleted with a run. Warn once, then require an explicit confirm.
+            linked_playbooks = [
+                pb for pb in state.playbook_store.list() if pb.source_run_name == run_name
+            ]
+            linked_rejections = [
+                rj for rj in state.rejection_store.list() if rj.source_run_name == run_name
+            ]
+            confirm = (query.get("confirm") or [""])[0].strip().lower() in {"1", "true", "yes"}
+            if linked_playbooks and not confirm:
+                count = len(linked_playbooks)
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "error": "run_has_playbooks",
+                        "playbook_count": count,
+                        "rejection_count": len(linked_rejections),
+                        "playbooks": [{"id": pb.id, "name": pb.name} for pb in linked_playbooks],
+                        "message": (
+                            f"This run is the source of {count} saved Playbook"
+                            f"{'s' if count != 1 else ''}. Deleting the run will not remove "
+                            "them — your Playbooks stay in the library and remain replayable; "
+                            "only their source-run link will point to a run that no longer exists."
+                        ),
+                    },
+                )
+                return
+            try:
+                delete_run(run_dir, base_dir=state.base_dir, job_store=job_store)
+            except RunDeleteError as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": exc.code, "message": str(exc)})
+                return
+            except OSError:
+                logger.exception("Could not delete run %s", run_name)
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "error": "delete_failed",
+                        "message": "Could not remove the run directory (a file may be in use).",
+                    },
+                )
+                return
+            self._send_json(
+                HTTPStatus.OK,
+                {"ok": True, "deleted": run_name, "playbooks_linked": len(linked_playbooks)},
+            )
+
         def _handle_delete_playbook(self, path: str) -> None:
             playbook_id = unquote(path.removeprefix("/api/playbooks/")).strip("/")
             if not playbook_id or path.endswith("/replay"):
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "playbook_not_found"})
                 return
             try:
+                entry = state.playbook_store.get(playbook_id)
                 deleted = state.playbook_store.delete(playbook_id)
             except PlaybookValidationError as exc:
                 self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": exc.code})
@@ -683,9 +956,153 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
             if not deleted:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "playbook_not_found"})
                 return
+            if entry is not None and isinstance(entry.finding, dict):
+                review_run_dir = resolve_run_dir(
+                    state.base_dir, entry.source_run_name, state.run_dir
+                ) or (state.base_dir / entry.source_run_name)
+                try:
+                    RunReviewStore(review_run_dir).remove(finding=entry.finding)
+                except ReviewValidationError:
+                    logger.warning("Could not remove the run review for Playbook %s", playbook_id)
+                refresh_review_artifacts(review_run_dir)
             self._send_json(HTTPStatus.OK, {"ok": True})
 
-        def _handle_start_playbook_replay(self, path: str) -> None:  # noqa: PLR0911
+        def _handle_create_rejection(self) -> None:
+            body = self._read_body()
+            run_param = body.get("run")
+            finding_id = str(body.get("finding_id") or "").strip()
+            if not finding_id:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "invalid_finding_id", "message": "A finding id is required."},
+                )
+                return
+            run_dir = resolve_run_dir(state.base_dir, run_param, state.run_dir)
+            if run_dir is None:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "unknown_run"})
+                return
+            findings = read_vulnerabilities(run_dir)
+            finding = next(
+                (item for item in findings if str(item.get("id") or "") == finding_id),
+                None,
+            )
+            if finding is None:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "finding_not_found"})
+                return
+            try:
+                target = self._registered_target_for_finding(finding, body.get("target_id"))
+                playbook = next(
+                    (
+                        item
+                        for item in state.playbook_store.list()
+                        if _matches_finding_decision(
+                            item,
+                            target_id=target.id,
+                            target_url=target.base_url,
+                            run_name=run_dir.name,
+                            finding=finding,
+                        )
+                    ),
+                    None,
+                )
+                if playbook is not None:
+                    self._send_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "error": "finding_in_playbook",
+                            "message": "Remove the Playbook entry before rejecting this finding.",
+                        },
+                    )
+                    return
+                entry, created = state.rejection_store.create_from_finding(
+                    target=target,
+                    reason=body.get("reason"),
+                    auditor_name=body.get("auditor_name"),
+                    source_run_name=run_dir.name,
+                    finding=finding,
+                )
+            except (
+                TargetValidationError,
+                PlaybookValidationError,
+                RejectionValidationError,
+            ) as exc:
+                status = (
+                    HTTPStatus.CONFLICT
+                    if exc.code in {"duplicate_rejection", "target_mismatch"}
+                    else HTTPStatus.BAD_REQUEST
+                )
+                self._send_json(status, {"error": exc.code, "message": str(exc)})
+                return
+            if not created:
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "error": "duplicate_rejection",
+                        "message": "This finding is already rejected.",
+                        "rejection": entry.as_dict(),
+                    },
+                )
+                return
+            try:
+                RunReviewStore(run_dir).record_rejected(
+                    finding=finding,
+                    reason=body.get("reason"),
+                    auditor_name=body.get("auditor_name"),
+                )
+            except ReviewValidationError as exc:
+                self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": exc.code})
+                return
+            refresh_review_artifacts(run_dir)
+            self._send_json(HTTPStatus.CREATED, {"rejection": entry.as_dict()})
+
+        def _handle_delete_rejection(self, path: str) -> None:
+            rejection_id = unquote(path.removeprefix("/api/rejections/")).strip("/")
+            if not rejection_id:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "rejection_not_found"})
+                return
+            try:
+                entry = state.rejection_store.get(rejection_id)
+                deleted = state.rejection_store.delete(rejection_id)
+            except RejectionValidationError as exc:
+                self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": exc.code})
+                return
+            if not deleted:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "rejection_not_found"})
+                return
+            if entry is not None and isinstance(entry.finding, dict):
+                review_run_dir = resolve_run_dir(
+                    state.base_dir, entry.source_run_name, state.run_dir
+                ) or (state.base_dir / entry.source_run_name)
+                try:
+                    RunReviewStore(review_run_dir).remove(finding=entry.finding)
+                except ReviewValidationError:
+                    logger.warning("Could not remove the run review for Rejection %s", rejection_id)
+                refresh_review_artifacts(review_run_dir)
+            self._send_json(HTTPStatus.OK, {"ok": True})
+
+        def _handle_set_remediation(self, path: str) -> None:
+            playbook_id = unquote(
+                path.removeprefix("/api/playbooks/").removesuffix("/remediation")
+            ).strip("/")
+            if not playbook_id:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "playbook_not_found"})
+                return
+            body = self._read_body()
+            try:
+                entry = state.playbook_store.set_remediation(
+                    playbook_id,
+                    owner=body.get("owner"),
+                    due_date=body.get("due_date"),
+                )
+            except PlaybookValidationError as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": exc.code, "message": str(exc)})
+                return
+            if entry is None:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "playbook_not_found"})
+                return
+            self._send_json(HTTPStatus.OK, {"playbook": entry.as_dict()})
+
+        def _handle_start_playbook_replay(self, path: str) -> None:
             playbook_id = unquote(path.removeprefix("/api/playbooks/")).removesuffix("/replay").strip("/")
             try:
                 entry = state.playbook_store.get(playbook_id)
@@ -710,12 +1127,40 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
             source_dir = resolve_run_dir(state.base_dir, entry.source_run_name, state.run_dir)
             if source_dir is not None:
                 artifact_dir = source_dir
+
+            playbook_id = entry.id
+
+            def _record_retest(finished: ReplayJob) -> None:
+                # Persist a manual retest back to the Playbook so the remediation
+                # lifecycle (open -> fixed -> reopened) advances just like the
+                # automatic gate does. The gate uses record_replay too.
+                if finished.status not in TERMINAL_REPLAY_STATUSES:
+                    return
+                reason = finished.error or None
+                if not reason and isinstance(finished.result, dict):
+                    failures = finished.result.get("failures")
+                    if isinstance(failures, list) and failures:
+                        reason = "; ".join(str(item) for item in failures)[:2000]
+                completed = None
+                if isinstance(finished.result, dict):
+                    steps = finished.result.get("completed_steps")
+                    completed = steps if isinstance(steps, int) else None
+                state.playbook_store.record_replay(
+                    playbook_id,
+                    status=finished.status,
+                    reason=reason,
+                    replay_id=finished.id,
+                    run_name=finished.run_name,
+                    completed_steps=completed,
+                )
+
             try:
                 job = state.replay_manager.start(
                     run_dir=artifact_dir,
                     finding_id=entry.id,
                     spec=normalized,
                     confirmed=body.get("confirmed") is True,
+                    on_complete=_record_retest,
                 )
             except ReplayValidationError as exc:
                 status = HTTPStatus.CONFLICT if exc.code == "replay_confirmation_required" else HTTPStatus.BAD_REQUEST
@@ -820,6 +1265,13 @@ def _make_handler(state: _ViewerState) -> type[BaseHTTPRequestHandler]:
             # closed here too so the endpoint can't be driven mid-scan.
             if not summary.get("finished", False):
                 self._send_json(HTTPStatus.CONFLICT, {"error": "run_not_finished"})
+                return
+            review = summary.get("review_summary") or {}
+            if not review.get("report_ready", False):
+                self._send_json(
+                    HTTPStatus.CONFLICT,
+                    {"error": "review_required", "review_summary": review},
+                )
                 return
 
             from phantom.interface.viewer.report_pdf import build_encrypted_report
@@ -1018,6 +1470,14 @@ def build_dashboard_payload(state: _ViewerState) -> dict[str, Any]:
 
     return {
         "mode": "dashboard" if state.dashboard_mode else "viewer",
+        # Whether this dashboard can launch/stop scans. ``phantom serve`` owns a
+        # scan manager; the in-TUI dashboard does not (the TUI owns the scan), so
+        # the UI hides target/scan management there.
+        "can_manage_scans": state.scan_manager is not None,
+        # The live run this dashboard was launched for (the TUI passes its run);
+        # the SPA focuses it on load. ``phantom serve`` leaves it null and lands
+        # on the audit-workspace home.
+        "default_run": state.run_dir.name if state.run_dir is not None else None,
         "llm": {
             "configured": bool(model),
             "model": model or None,
@@ -1045,6 +1505,7 @@ def serve(
     port: int = 0,
     open_browser: bool = True,
     steer_handler: Callable[[str, str], bool] | None = None,
+    dashboard_mode: bool | None = None,
 ) -> tuple[ThreadingHTTPServer, str, str]:
     """Start the viewer server on a background thread; return (server, url, token).
 
@@ -1060,7 +1521,12 @@ def serve(
     live steering bridge; standalone finished-run viewers remain read-only.
     """
     assets_dir = bundle_dir()
-    state = _ViewerState(run_dir=run_dir, assets_dir=assets_dir, steer_handler=steer_handler)
+    state = _ViewerState(
+        run_dir=run_dir,
+        assets_dir=assets_dir,
+        steer_handler=steer_handler,
+        dashboard_mode=dashboard_mode,
+    )
     handler = _make_handler(state)
 
     try:
